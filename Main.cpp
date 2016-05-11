@@ -1696,6 +1696,8 @@ void implicitLaplacianMeshSmoothing(double lambda) {
 
 void eigenReconstruction(double lambda, int nLargestEigs) {
 
+	std::cout << "\nstarting...\n";
+
 	//find N
 	current_mesh = 0;
 	//iterate over all vertices
@@ -1745,8 +1747,68 @@ void eigenReconstruction(double lambda, int nLargestEigs) {
 
 	}
 
+	std::cout << "\nLaplacian matrix made...\n";
+
+	// now have the laplacian matrix
+
+	//take an eigen decomposition of it:
+	Spectra::SparseGenMatProd<double> op(L);
+
+	int ncv = 6; // this affects rate of convergance - higher means faster but also more memory usage
+
+	Spectra::GenEigsSolver< double, Spectra::LARGEST_MAGN, Spectra::SparseGenMatProd<double> > eigs(&op, nLargestEigs, ncv);
+	// Initialize and compute
+	std::cout << "\nInitialising and solving...\n";
+
+	eigs.init();
+	int nconv = eigs.compute();
+
+	// Retrieve results
+	Eigen::VectorXcd evalues;
+	Eigen::MatrixXd evecs;
+	if (eigs.info() == Spectra::SUCCESSFUL) {
+		evalues = eigs.eigenvalues();
+		evecs = eigs.eigenvectors().real();
+	}
+
+	//system("PAUSE");
+
+	//std::cout << "Eigenvalues found:\n" << evalues << std::endl;
+	//std::cout << "Eigenvectors found:\n" << evecs << std::endl;
 
 
+	// new x = sum(i) of (x'e)e where e is the eigen vec to i
+
+	std::cout << "\nSolved, now reconstructing mesh\n";
+
+	Eigen::MatrixXd XnMat = Xn;
+	Eigen::MatrixXd YnMat = Yn;
+	Eigen::MatrixXd ZnMat = Zn;
+
+	std::cout << "Xn row: " << Xn.rows() << "\tcol:" << Xn.cols() << "\n";
+	std::cout << "evecs row: " << evecs.rows() << "\tcol:" << evecs.cols() << "\n";
+	Eigen::MatrixXd Xn1Mat = (XnMat*evecs.transpose())*evecs;
+	Eigen::MatrixXd Yn1Mat = (YnMat*evecs.transpose())*evecs;
+	Eigen::MatrixXd Zn1Mat = (ZnMat*evecs.transpose())*evecs;
+
+	std::cout << "Xn row: " << Xn1Mat.rows() << "\tcol:" << Xn1Mat.cols() << "\n";
+	Xn1 = Xn1Mat;
+	Yn1 = Yn1Mat;
+	Zn1 = Zn1Mat;
+	//save new coords
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+
+		OpenMesh::Vec3f newCoord;
+
+		newCoord[0] = Xn1(vlt.handle().idx());
+		newCoord[1] = Yn1(vlt.handle().idx());
+		newCoord[2] = Zn1(vlt.handle().idx());
+
+		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+
+	}
+
+	
 }
 
 
