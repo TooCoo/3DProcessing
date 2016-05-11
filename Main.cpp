@@ -2125,8 +2125,9 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 		}
 		//in help
 		if (key == GLFW_KEY_K && action == GLFW_PRESS) {
-			colourByNormals();
-			std::cout << "K: Colour by normals\n";
+			double lambda = -1.0;
+			int n_largest_eigs = 10;
+			eigenReconstruction(lambda, n_largest_eigs);
 		}
 		//in help
 		if (key == GLFW_KEY_L && action == GLFW_PRESS) {
