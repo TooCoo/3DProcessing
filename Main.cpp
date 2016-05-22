@@ -1,43 +1,51 @@
-
-
+// Standard Library
 #include <iostream>
 #include <fstream>
-#include <stdio.h>
-#include <stdlib.h>
 #include <random>
-
-#include <GLFW/glfw3.h>
 #include <vector>
+#include <math.h>
 
-#include <GL\glut.h>
+// GLFW
+#include <GLFW/glfw3.h>
 
-#include <eigen3\Eigen/Core>
-#include <eigen3\Eigen/SparseCore>
-#include <GenEigsSolver.h>
-#include <MatOp/SparseGenMatProd.h>
-#include <iostream>
+// Eigen
+#include <eigen3/Eigen/Core>
+#include <eigen3/Eigen/SparseCore>
+#include <eigen3/Eigen/Sparse>
 
-#define PI 3.14159265
-//cos 3 degrees
-#define COS3DEGREE 0.99862953475
-#define SIN3DEGREE 0.05233595624
+// GLUT
+#include <include/GL/freeglut.h>
 
-//15 degrees
-#define COS15DEGREE 0.96592582628
-#define SIN15DEGREE 0.2588190451
+// Spectra
+#include <spectra/include/GenEigsSolver.h>
+#include <spectra/include/MatOp/SparseGenMatProd.h>
 
-//my data structure/classes
+// ANN
+#include <include/ANN/ann.h>
+
+// OpenMesh
+#include <OpenMesh/Core/IO/MeshIO.hh>
+#include <OpenMesh/Core/Mesh/PolyMesh_ArrayKernelT.hh>
+#include <OpenMesh/Core/Mesh/PolyConnectivity.hh>
+#include <OpenMesh/Core/Geometry/VectorT.hh>
+
+// local imports
 #include "PointPair.h"
 #include "NeighbourList.h"
 #include "TransformationMatrix.h"
 
-// Import ANN so that I can find nearest neighbours
-#include <ANN/ANN.h>					
 
-// and eigen ti do some linear algebra
-#include <eigen3/Eigen/Dense>
-#include <eigen3/Eigen/Sparse>
-#include <eigen3/Eigen/IterativeLinearSolvers>
+// contsants
+#define PI 3.14159265
+
+// 3 degrees
+#define COS3DEGREE 0.99862953475
+#define SIN3DEGREE 0.05233595624
+
+// 15 degrees
+#define COS15DEGREE 0.96592582628
+#define SIN15DEGREE 0.2588190451
+
 
 using Eigen::MatrixXd;
 //typedef Eigen::SparseMatrix<double> SpMat;
@@ -59,16 +67,6 @@ int window_h = 480;
 
 //end lighting --------
 
-//OpenMesh
-// -------------------- OpenMesh
-#include <OpenMesh/Core/IO/MeshIO.hh>
-#include <OpenMesh/Core/Mesh/PolyMesh_ArrayKernelT.hh>
-#include <OpenMesh/Core/Mesh/PolyConnectivity.hh>
-#include <OpenMesh/Core/Geometry/VectorT.hh>
-
-#define _USE_MATH_DEFINES
-#include <math.h>
-// ----------------------------------------------------------------------------
 
 float globalScale = 1.0f;
 float global_rotation = 0.0f;
@@ -106,17 +104,17 @@ struct MyTraits : public OpenMesh::DefaultTraits {
 	typedef OpenMesh::Vec4f Color;
 	//typedef float mean_curvature;
 	VertexTraits{
-public:	
-	
-	const unsigned int valance() const { return valence; }
-	void set_valence(const unsigned int v) { valance = v; }
-	//float meanCurvature() { return mean_curvature; }
-	//void setMeanCurvature(float H) { mean_curvature = H; }
-	//void set_normal(OpenMesh::Vec3f fn) { Normal = fn; }
+		public:
 
-private:
-	unsigned int valence;
-	//float mean_curvature;
+			const unsigned int valance() const { return valence; }
+			//void set_valence(const unsigned int v) { valance = v; }
+			//float meanCurvature() { return mean_curvature; }
+			//void setMeanCurvature(float H) { mean_curvature = H; }
+			//void set_normal(OpenMesh::Vec3f fn) { Normal = fn; }
+
+		private:
+			unsigned int valence;
+			//float mean_curvature;
 	};
 
 	VertexAttributes(
@@ -187,7 +185,7 @@ struct Button
 	int h;				// height
 	int state;			// if 1: then pressed, else 0: not pressed
 	int highlighted;		// is mouse over the button
-	char* label;		// button text
+	const char* label;		// button text
 	std::string slabel;
 	//const unsigned char* culabel;		// button text
 	ButtonCallback callbackFunction;
@@ -357,7 +355,7 @@ bool ButtonPassive(Button *b, int x, int y)
 
 // ----------------------------------------------------------------------------
 
-void colourVertex(OpenMesh::VertexHandle &_vh, OpenMesh::Vec4f col) {
+void colourVertex(OpenMesh::VertexHandle _vh, OpenMesh::Vec4f col) {
 	OpenMesh::Vec3f newCoord;
 	newCoord = mesh_list[current_mesh].point(_vh);
 	mesh_list[current_mesh].set_color(_vh, col);
@@ -409,7 +407,7 @@ void colourOverlap() {
 												//adding points from base mesh to data points set
 	for (vlt_0 = vBegin_0; vlt_0 != vEnd_0; ++vlt_0) {
 		for (int i = 0; i < dim; i++) {
-			dataPts[nPts][i] = mesh_list[base_mesh].point(vlt_0.handle())[i];
+			dataPts[nPts][i] = mesh_list[base_mesh].point(*vlt_0)[i];
 		}
 		nPts++;
 	}
@@ -430,7 +428,7 @@ void colourOverlap() {
 
 		//set query point
 		for (int i = 0; i < dim; i++) {
-			queryPt[i] = mesh_list[query_mesh].point(vlt_1.handle())[i];
+			queryPt[i] = mesh_list[query_mesh].point(*vlt_1)[i];
 
 		}
 
@@ -445,11 +443,11 @@ void colourOverlap() {
 
 		int pid, qid;
 		pid = nnIdx[0];
-		qid = vlt_1.handle().idx();
+		qid = vlt_1->idx();
 
 		//std::cout << "pid: " << pid << "\tqid: " << qid << "\n";
 
-		PointPair this_pp = PointPair(mesh_list[base_mesh].point(OpenMesh::VertexHandle(nnIdx[0])), mesh_list[current_mesh].point(vlt_1.handle()), dists[0], pid, qid);
+		PointPair this_pp = PointPair(mesh_list[base_mesh].point(OpenMesh::VertexHandle(nnIdx[0])), mesh_list[current_mesh].point(*vlt_1), dists[0], pid, qid);
 
 		neighbour_list.addPair(this_pp);
 
@@ -513,10 +511,10 @@ void colourPhong() {
 			
 	
 
-			Eigen::Vector3d n(mesh_list[current_mesh].normal(vlt.handle())[0], mesh_list[current_mesh].normal(vlt.handle())[1], mesh_list[current_mesh].normal(vlt.handle())[2]);
+			Eigen::Vector3d n(mesh_list[current_mesh].normal(*vlt)[0], mesh_list[current_mesh].normal(*vlt)[1], mesh_list[current_mesh].normal(*vlt)[2]);
 			n.normalize();
 			//light location = lightDir
-			//n = mesh_list[current_mesh].normal(vlt.handle())
+			//n = mesh_list[current_mesh].normal(*vlt)
 			Eigen::Vector3d reflection = 2.0 * (lightDir.dot(n))*n - lightDir;
 			reflection.normalize();
 			float ks = material[0];
@@ -538,7 +536,7 @@ void colourPhong() {
 			//OpenMesh::Vec4f newCol = OpenMesh::Vec4f(r, g, b, 1.0f);
 			OpenMesh::Vec4f newCol = OpenMesh::Vec4f(this_colour(0), this_colour(0), this_colour(0), 1.0f);
 
-			colourVertex(vlt.handle(), newCol);
+			colourVertex(*vlt, newCol);
 
 		}
 	}
@@ -561,9 +559,9 @@ void colourByNormals() {
 		for (vlt = vBegin; vlt != vEnd; ++vlt) {
 			//do something here	
 
-			float r = mesh_list[current_mesh].normal(vlt.handle())[0];
-			float g = mesh_list[current_mesh].normal(vlt.handle())[1];
-			float b = mesh_list[current_mesh].normal(vlt.handle())[2];
+			float r = mesh_list[current_mesh].normal(*vlt)[0];
+			float g = mesh_list[current_mesh].normal(*vlt)[1];
+			float b = mesh_list[current_mesh].normal(*vlt)[2];
 					
 
 			if (r < 0) r *= -1.0f;
@@ -572,7 +570,7 @@ void colourByNormals() {
 			//OpenMesh::Vec4f newCol = OpenMesh::Vec4f(r, g, b, 1.0f);
 			OpenMesh::Vec4f newCol = OpenMesh::Vec4f(r, r, r, 1.0f);
 
-			colourVertex(vlt.handle(), newCol);
+			colourVertex(*vlt, newCol);
 
 		}
 	}
@@ -615,7 +613,7 @@ void moveMeshesToCommonCentre() {
 		for (vlt = vBegin; vlt != vEnd; ++vlt) {
 			//do something here	
 			n_points++;
-			mesh_centre[current_mesh] += mesh_list[current_mesh].point(vlt.handle());
+			mesh_centre[current_mesh] += mesh_list[current_mesh].point(*vlt);
 
 		}
 		mesh_centre[current_mesh] *= (1.0f / (float)n_points);
@@ -637,7 +635,7 @@ void moveMeshesToCommonCentre() {
 		for (vlt = vBegin; vlt != vEnd; ++vlt) {
 			//do something here	
 			n_points++;
-			mesh_list[current_mesh].point(vlt.handle()) += translation;
+			mesh_list[current_mesh].point(*vlt) += translation;
 
 		}		
 	}
@@ -664,7 +662,7 @@ void moveMeshesToOrigin() {
 		for (vlt = vBegin; vlt != vEnd; ++vlt) {
 			//do something here	
 			n_points++;
-			mesh_centre[current_mesh] += mesh_list[current_mesh].point(vlt.handle());
+			mesh_centre[current_mesh] += mesh_list[current_mesh].point(*vlt);
 
 		}
 		mesh_centre[current_mesh] *= (1.0f / (float)n_points);
@@ -686,7 +684,7 @@ void moveMeshesToOrigin() {
 		for (vlt = vBegin; vlt != vEnd; ++vlt) {
 			//do something here	
 			n_points++;
-			mesh_list[current_mesh].point(vlt.handle()) += translation;
+			mesh_list[current_mesh].point(*vlt) += translation;
 
 		}
 	}
@@ -725,7 +723,7 @@ void applyTranslation(MatrixXd _R, MatrixXd _T, int target_mesh) {
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 		
 		OpenMesh::Vec3f newCoord;
-		newCoord = mesh_list[current_mesh].point(vlt.handle());
+		newCoord = mesh_list[current_mesh].point(*vlt);
 
 		MatrixXd new_point_matrix(1, 3);
 		new_point_matrix(0, 0) = newCoord[0];
@@ -746,7 +744,7 @@ void applyTranslation(MatrixXd _R, MatrixXd _T, int target_mesh) {
 		newCoord[1] = new_point_matrix(0, 1);
 		newCoord[2] = new_point_matrix(0, 2);
 
-		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+		mesh_list[current_mesh].set_point(*vlt, newCoord);
 
 	}
 	
@@ -779,7 +777,7 @@ void applyTranslation(MatrixXd _x, int target_mesh) {
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
 		OpenMesh::Vec3f newCoord;
-		newCoord = mesh_list[current_mesh].point(vlt.handle());
+		newCoord = mesh_list[current_mesh].point(*vlt);
 
 		MatrixXd new_point_matrix(1, 3);
 		new_point_matrix(0, 0) = newCoord[0];
@@ -798,7 +796,7 @@ void applyTranslation(MatrixXd _x, int target_mesh) {
 		newCoord[1] = new_point_matrix(0, 1);
 		newCoord[2] = new_point_matrix(0, 2);
 
-		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+		mesh_list[current_mesh].set_point(*vlt, newCoord);
 
 		//std::cout << "newcoor:\n" << newCoord << "\n";
 
@@ -832,7 +830,7 @@ void colourByMesh() {
 
 			OpenMesh::Vec4f newCol = OpenMesh::Vec4f(r, g, b, 1.0f);
 
-			colourVertex(vlt.handle(), newCol);
+			colourVertex(*vlt, newCol);
 
 		}
 	}
@@ -855,7 +853,7 @@ void randomlyColour() {
 		float b = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
 
 		OpenMesh::Vec4f newCol = OpenMesh::Vec4f(r, g, b, 1.0f);
-		colourVertex(vlt.handle(), newCol);
+		colourVertex(*vlt, newCol);
 
 	}
 
@@ -898,7 +896,7 @@ void pointNormalsOutwards() {
 			n_points++;
 			for (int i = 0; i < dim; i++) {
 
-				mesh_centre[i] += mesh_list[current_mesh].point(vlt.handle())[i];
+				mesh_centre[i] += mesh_list[current_mesh].point(*vlt)[i];
 
 			}
 
@@ -953,7 +951,7 @@ void alignNormals() {
 
 			for (int i = 0; i < dim; i++) {
 
-				dataPts[nPts][i] = mesh_list[current_mesh].point(vlt.handle())[i];
+				dataPts[nPts][i] = mesh_list[current_mesh].point(*vlt)[i];
 
 			}
 			nPts++;
@@ -971,7 +969,7 @@ void alignNormals() {
 		for (vlt = vBegin; vlt != vEnd; ++vlt) {
 			//set query point
 			for (int i = 0; i < dim; i++) {
-				queryPt[i] = mesh_list[current_mesh].point(vlt.handle())[i];
+				queryPt[i] = mesh_list[current_mesh].point(*vlt)[i];
 
 			}
 
@@ -996,12 +994,12 @@ void alignNormals() {
 			average_normal *= (1.0f / (float)k);
 
 			//if this normal is more different than 1.0 of the average normal then change it
-			double difference_beteen_normals = (mesh_list[current_mesh].normal(vlt.handle()) - average_normal).norm();
+			double difference_beteen_normals = (mesh_list[current_mesh].normal(*vlt) - average_normal).norm();
 			//std::cout << difference_beteen_normals << "\n";
 			if (difference_beteen_normals > 0.8) {
-				OpenMesh::Vec3f new_normal = mesh_list[current_mesh].normal(vlt.handle());
+				OpenMesh::Vec3f new_normal = mesh_list[current_mesh].normal(*vlt);
 				new_normal *= -1.0;
-				mesh_list[current_mesh].set_normal(vlt.handle(), new_normal);
+				mesh_list[current_mesh].set_normal(*vlt, new_normal);
 				normals_flipped++;
 
 			}
@@ -1037,7 +1035,7 @@ void findNormals() {
 
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
-		OpenMesh::VertexHandle vh = vlt.handle();
+		OpenMesh::VertexHandle vh = *vlt;
 
 		OpenMesh::Vec3f xi = mesh_list[current_mesh].point(vh);
 
@@ -1047,8 +1045,8 @@ void findNormals() {
 		float area = 0.0f;
 
 		//now iterate over adjacent vertices
-		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
-			xj.push_back(mesh_list[current_mesh].point(vvi.handle()));
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi.is_valid(); ++vvi) {
+			xj.push_back(mesh_list[current_mesh].point(*vvi));
 		}
 		//now find laplaceS
 		for (int i = 0; i < xj.size(); i++) {
@@ -1107,15 +1105,15 @@ void findVertNormalsFromFaces() {
 	//int n_adjacent = 0;
 
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
-		OpenMesh::VertexHandle vh = vlt.handle();
+		OpenMesh::VertexHandle vh = *vlt;
 		//find the adjecent faces
 		
 		OpenMesh::Vec3f thisNormal = OpenMesh::Vec3f(0.0f, 0.0f, 0.0f);
 
-		for (MyMesh::VertexFaceIter vfi = mesh_list[current_mesh].vf_iter(vh); vfi; ++vfi) {
+		for (MyMesh::VertexFaceIter vfi = mesh_list[current_mesh].vf_iter(vh); vfi.is_valid(); ++vfi) {
 
 			//n_adjacent++;
-			thisNormal += mesh_list[current_mesh].normal(vfi.handle());
+			thisNormal += mesh_list[current_mesh].normal(*vfi);
 
 		}
 		
@@ -1137,7 +1135,7 @@ void findFaceNormals() {
 	//iterate over mesh's faces and find their normal
 	for (MyMesh::FaceIter f_it = mesh_list[current_mesh].faces_begin(); f_it != mesh_list[current_mesh].faces_end(); ++f_it) {
 		//MyMesh::FaceVertexIter OpenMesh::PolyConnectivity::FaceVertexIter OpenMesh::PolyConnectivity::fv_iter(FaceHandle _fh); (FaceHandle _fh);
-		OpenMesh::FaceHandle fa = f_it.handle();
+		OpenMesh::FaceHandle fa = *f_it;
 
 		//There should be three verts for every face.
 		OpenMesh::Vec3f v1;
@@ -1146,9 +1144,9 @@ void findFaceNormals() {
 
 		int current_v = 0;
 
-		for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi; ++fvi) {
+		for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi.is_valid(); ++fvi) {
 			OpenMesh::Vec3f thisCoord;
-			thisCoord = mesh_list[current_mesh].point(fvi.handle());
+			thisCoord = mesh_list[current_mesh].point(*fvi);
 			current_v++;
 
 			//std::cout << current_v << "\t" << thisCoord << "\n";
@@ -1209,11 +1207,11 @@ void editModeTranslate(float _dir) {
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 	
 		OpenMesh::Vec3f newCoord;
-		newCoord = mesh_list[current_mesh].point(vlt.handle());
+		newCoord = mesh_list[current_mesh].point(*vlt);
 
 		newCoord += translation;
 
-		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+		mesh_list[current_mesh].set_point(*vlt, newCoord);
 
 	}
 
@@ -1234,7 +1232,7 @@ void addNoise(float _sigma) {
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
 		OpenMesh::Vec3f newCoord;
-		newCoord = mesh_list[current_mesh].point(vlt.handle());
+		newCoord = mesh_list[current_mesh].point(*vlt);
 
 		OpenMesh::Vec3f noise = OpenMesh::Vec3f(0.0f, 0.0f, 0.0f);
 
@@ -1247,7 +1245,7 @@ void addNoise(float _sigma) {
 
 		newCoord += noise;
 		
-		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+		mesh_list[current_mesh].set_point(*vlt, newCoord);
 
 	}
 
@@ -1312,7 +1310,7 @@ void editModeRotate(float _dir) {
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
 		OpenMesh::Vec3f newCoord;
-		newCoord = mesh_list[current_mesh].point(vlt.handle());
+		newCoord = mesh_list[current_mesh].point(*vlt);
 
 		MatrixXd coord_mat(3, 1);
 		coord_mat << newCoord[0], newCoord[1], newCoord[2];
@@ -1322,7 +1320,7 @@ void editModeRotate(float _dir) {
 		newCoord[1] = coord_mat(1, 0);
 		newCoord[2] = coord_mat(2, 0);
 
-		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+		mesh_list[current_mesh].set_point(*vlt, newCoord);
 
 	}
 
@@ -1337,7 +1335,7 @@ void uniformLaplaceDiscretization() {
 	vEnd = mesh_list[current_mesh].vertices_end();
 
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
-		OpenMesh::VertexHandle vh = vlt.handle();
+		OpenMesh::VertexHandle vh = *vlt;
 		//find the adjecent verts
 
 		OpenMesh::Vec3f thisNormal = mesh_list[current_mesh].normal(vh);
@@ -1346,10 +1344,10 @@ void uniformLaplaceDiscretization() {
 		OpenMesh::Vec3f laplace = OpenMesh::Vec3f(0.0f, 0.0f, 0.0f);
 		int n_adjacent = 0;
 
-		for (MyMesh::VertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
+		for (MyMesh::VertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi.is_valid(); ++vvi) {
 
 			n_adjacent++;
-			xj = mesh_list[current_mesh].point(vvi.handle());
+			xj = mesh_list[current_mesh].point(*vvi);
 			laplace += (xj - xi);
 		}
 
@@ -1389,7 +1387,7 @@ void discreteLaplaceBeltrami() {
 
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
-		OpenMesh::VertexHandle vh = vlt.handle();
+		OpenMesh::VertexHandle vh = *vlt;
 
 		OpenMesh::Vec3f xi = mesh_list[current_mesh].point(vh);
 		
@@ -1399,8 +1397,8 @@ void discreteLaplaceBeltrami() {
 		float area = 0.0f;
 
 		//now iterate over adjacent vertices
-		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
-			xj.push_back(mesh_list[current_mesh].point(vvi.handle()));
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi.is_valid(); ++vvi) {
+			xj.push_back(mesh_list[current_mesh].point(*vvi));
 		}
 		//now find laplaceS
 		for (int i = 0; i < xj.size(); i++) {
@@ -1471,7 +1469,7 @@ void findGaussCurvature2() {
 
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
-		OpenMesh::VertexHandle vh = vlt.handle();
+		OpenMesh::VertexHandle vh = *vlt;
 
 		OpenMesh::Vec3f xi = mesh_list[current_mesh].point(vh);
 
@@ -1483,8 +1481,8 @@ void findGaussCurvature2() {
 		double angle_deficit = 0.0;
 
 		//now iterate over adjacent vertices
-		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
-			xj.push_back(mesh_list[current_mesh].point(vvi.handle()));
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi.is_valid(); ++vvi) {
+			xj.push_back(mesh_list[current_mesh].point(*vvi));
 		}
 		
 		//now find laplaceS
@@ -1558,20 +1556,20 @@ void findGaussCurvature2() {
 			double thisk1 = h + sqrt(inside_sqrt);
 			double thisk2 = h - sqrt(inside_sqrt);
 
-			mesh_list[current_mesh].property(k1, vlt.handle()) = h + sqrt(inside_sqrt);
-			mesh_list[current_mesh].property(k2, vlt.handle()) = h - sqrt(inside_sqrt);
+			mesh_list[current_mesh].property(k1, *vlt) = h + sqrt(inside_sqrt);
+			mesh_list[current_mesh].property(k2, *vlt) = h - sqrt(inside_sqrt);
 
 		}
 		else {
 			std::cout << "error: in find gauss curvature2: negative sqrt or less than 3 neighbouring vertices setting k1 and k2 to zero\n";
 			h = 0.0;
 			K = 0.0;
-			mesh_list[current_mesh].property(k1, vlt.handle()) = 0.0;
-			mesh_list[current_mesh].property(k2, vlt.handle()) = 0.0;
+			mesh_list[current_mesh].property(k1, *vlt) = 0.0;
+			mesh_list[current_mesh].property(k2, *vlt) = 0.0;
 		}
 		
 		mesh_list[current_mesh].property(mean_curvature, vh) = h;
-		mesh_list[current_mesh].property(gauss_curvature, vlt.handle()) = K;
+		mesh_list[current_mesh].property(gauss_curvature, *vlt) = K;
 
 		if (h > max_mean_curvture) max_mean_curvture = h;
 		if (h < min_mean_curvture) min_mean_curvture = h;
@@ -1604,10 +1602,10 @@ void applyDiffusionFlow(double lambda) {
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
 		OpenMesh::Vec3f newCoord;
-		newCoord = mesh_list[current_mesh].point(vlt.handle());
-		double h = mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(vlt.handle()));
-		newCoord += lambda * h * mesh_list[current_mesh].normal(vlt.handle());
-		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+		newCoord = mesh_list[current_mesh].point(*vlt);
+		double h = mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(*vlt));
+		newCoord += lambda * h * mesh_list[current_mesh].normal(*vlt);
+		mesh_list[current_mesh].set_point(*vlt, newCoord);
 
 	}
 }
@@ -1635,7 +1633,7 @@ void implicitLaplacianMeshSmoothing(double lambda) {
 	//fill matrix and vector
 
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
-		OpenMesh::VertexHandle vh = vlt.handle();
+		OpenMesh::VertexHandle vh = *vlt;
 
 		int i = vh.idx();
 		int n_neighbours = 0;
@@ -1645,16 +1643,16 @@ void implicitLaplacianMeshSmoothing(double lambda) {
 		Zn(i) = mesh_list[current_mesh].point(vh)[2];
 
 		//now iterate over adjacent vertices
-		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
-			OpenMesh::VertexHandle vh2 = vvi.handle();
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi.is_valid(); ++vvi) {
+			OpenMesh::VertexHandle vh2 = *vvi;
 			n_neighbours++;
 			//int j = vh2.idx();			
 			//L.insert(i, j) = lambda * 1.0;
 		}
 		double valence_normalisation = 1.0 / double(n_neighbours);
 
-		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
-			OpenMesh::VertexHandle vh2 = vvi.handle();
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi.is_valid(); ++vvi) {
+			OpenMesh::VertexHandle vh2 = *vvi;
 			//n_neighbours++;
 			int j = vh2.idx();
 			L.insert(i, j) = valence_normalisation * lambda * 1.0;
@@ -1674,7 +1672,7 @@ void implicitLaplacianMeshSmoothing(double lambda) {
 	std::cout << "#iterations:     " << cg.iterations() << std::endl;
 	std::cout << "estimated error: " << cg.error() << std::endl;
 
-	Zn1 = cg.solve(Zn);	
+	Zn1 = cg.solve(Zn);
 	std::cout << "#iterations:     " << cg.iterations() << std::endl;
 	std::cout << "estimated error: " << cg.error() << std::endl;
 
@@ -1684,11 +1682,11 @@ void implicitLaplacianMeshSmoothing(double lambda) {
 
 		OpenMesh::Vec3f newCoord;
 		
-		newCoord[0] = Xn1(vlt.handle().idx());
-		newCoord[1] = Yn1(vlt.handle().idx());
-		newCoord[2] = Zn1(vlt.handle().idx());
+		newCoord[0] = Xn1(vlt->idx());
+		newCoord[1] = Yn1(vlt->idx());
+		newCoord[2] = Zn1(vlt->idx());
 
-		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+		mesh_list[current_mesh].set_point(*vlt, newCoord);
 
 	}
 
@@ -1717,7 +1715,7 @@ void eigenReconstruction(double lambda, int nLargestEigs) {
 	//fill matrix and vector
 
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
-		OpenMesh::VertexHandle vh = vlt.handle();
+		OpenMesh::VertexHandle vh = *vlt;
 
 		int i = vh.idx();
 		int n_neighbours = 0;
@@ -1727,16 +1725,16 @@ void eigenReconstruction(double lambda, int nLargestEigs) {
 		Zn(i) = mesh_list[current_mesh].point(vh)[2];
 
 		//now iterate over adjacent vertices
-		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
-			OpenMesh::VertexHandle vh2 = vvi.handle();
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi.is_valid(); ++vvi) {
+			OpenMesh::VertexHandle vh2 = *vvi;
 			n_neighbours++;
 			//int j = vh2.idx();			
 			//L.insert(i, j) = lambda * 1.0;
 		}
 		double valence_normalisation = 1.0 / double(n_neighbours);
 
-		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
-			OpenMesh::VertexHandle vh2 = vvi.handle();
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi.is_valid(); ++vvi) {
+			OpenMesh::VertexHandle vh2 = *vvi;
 			//n_neighbours++;
 			int j = vh2.idx();
 			L.insert(i, j) = valence_normalisation * lambda * 1.0;
@@ -1778,9 +1776,9 @@ void findGaussCurvature() {
 
 		//iterate over faces
 		int n_adjacent_faces = 0;
-		for (MyMesh::ConstVertexFaceIter vfi = mesh_list[current_mesh].vf_iter(vlt.handle()); vfi; ++vfi) {
+		for (MyMesh::ConstVertexFaceIter vfi = mesh_list[current_mesh].vf_iter(*vlt); vfi.is_valid(); ++vfi) {
 			n_adjacent_faces++;
-			OpenMesh::Vec3f core_vert = mesh_list[current_mesh].point(vlt.handle());
+			OpenMesh::Vec3f core_vert = mesh_list[current_mesh].point(*vlt);
 
 			//Should be three verts
 			OpenMesh::Vec3f v1;
@@ -1790,19 +1788,19 @@ void findGaussCurvature() {
 			int vert_count = 0;
 
 			//I need coords of opposite vertecies
-			for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(vfi.handle()); fvi; ++fvi) {
+			for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(*vfi); fvi.is_valid(); ++fvi) {
 
 				vert_count++;
 
 				switch (vert_count) {
 				case 1:
-					v1 = mesh_list[current_mesh].point(fvi.handle());
+					v1 = mesh_list[current_mesh].point(*fvi);
 					break;
 				case 2:
-					v2 = mesh_list[current_mesh].point(fvi.handle());
+					v2 = mesh_list[current_mesh].point(*fvi);
 					break;
 				case 3:
-					v3 = mesh_list[current_mesh].point(fvi.handle());
+					v3 = mesh_list[current_mesh].point(*fvi);
 					break;
 				default:
 					std::cout << "Error in findGaussCurvature: More than three vertices in triangle\n";
@@ -1876,7 +1874,7 @@ void findGaussCurvature() {
 				K = 1.0;
 			}
 
-			float H = mesh_list[current_mesh].property(mean_curvature, vlt.handle());
+			float H = mesh_list[current_mesh].property(mean_curvature, *vlt);
 			float inside_sqrt = H*H - K;
 
 			
@@ -1885,18 +1883,18 @@ void findGaussCurvature() {
 			if (inside_sqrt < 0.0) {
 				wrongCurves++;
 				//cover the thing
-				mesh_list[current_mesh].property(gauss_curvature, vlt.handle()) = 0.0;
-				mesh_list[current_mesh].property(k1, vlt.handle()) = 0.0;
-				mesh_list[current_mesh].property(k2, vlt.handle()) = 0.0;
+				mesh_list[current_mesh].property(gauss_curvature, *vlt) = 0.0;
+				mesh_list[current_mesh].property(k1, *vlt) = 0.0;
+				mesh_list[current_mesh].property(k2, *vlt) = 0.0;
 				inside_sqrt *= -1.0f;
 			}
 			//else {
 
 				float thisk1 = H + sqrt(inside_sqrt);
 				float thisk2 = H - sqrt(inside_sqrt);
-				mesh_list[current_mesh].property(gauss_curvature, vlt.handle()) = K;
-				mesh_list[current_mesh].property(k1, vlt.handle()) = thisk1;
-				mesh_list[current_mesh].property(k2, vlt.handle()) = thisk2;
+				mesh_list[current_mesh].property(gauss_curvature, *vlt) = K;
+				mesh_list[current_mesh].property(k1, *vlt) = thisk1;
+				mesh_list[current_mesh].property(k2, *vlt) = thisk2;
 
 				if (K > max_gauss_curvture) max_gauss_curvture = K;
 				if (K < min_gauss_curvture) min_gauss_curvture = K;
@@ -1939,7 +1937,7 @@ OpenMesh::Vec3f getCentreOfMesh() {
 		nVerts++;
 		//do something here
 		OpenMesh::Vec3f newCoord;
-		newCoord = mesh_list[current_mesh].point(vlt.handle());
+		newCoord = mesh_list[current_mesh].point(*vlt);
 		averageLocation = averageLocation + newCoord;
 
 	}
@@ -2242,7 +2240,7 @@ static void mouse_moved_callback(GLFWwindow* window, double x_pos, double y_pos)
 
 /* Draw string using glut bitmap
 */
-void Font(void *font, char *text, int x, int y)
+void Font(void *font, const char *text, int x, int y)
 {
 	glRasterPos2i(x, y);
 
@@ -2371,7 +2369,7 @@ void display_pointcloud(GLFWwindow* window) {
 	if (editmode) {
 		glBegin(GL_LINE);
 
-		if (current_axis = 0) {
+		if (current_axis == 0) {
 			glColor3f(1.0f, 0.0f, 0.0f);
 			glVertex3f(-1.0f, 0.0f, 0.0f);
 			glVertex3f(1.0f, 0.0f, 0.0f);
@@ -2413,8 +2411,8 @@ void display_pointcloud(GLFWwindow* window) {
 			//do something here
 			OpenMesh::Vec3f thisCoord;
 			OpenMesh::Vec4f thisCol;
-			thisCoord = mesh_list[current_mesh].point(vlt.handle());
-			thisCol = mesh_list[current_mesh].color(vlt.handle());
+			thisCoord = mesh_list[current_mesh].point(*vlt);
+			thisCol = mesh_list[current_mesh].color(*vlt);
 			glColor3f(thisCol[0], thisCol[1], thisCol[2]);
 			glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
 
@@ -2609,8 +2607,8 @@ void display(GLFWwindow* window) {
 				//do something here
 				OpenMesh::Vec3f thisCoord;
 				OpenMesh::Vec4f thisCol;
-				thisCoord = mesh_list[current_mesh].point(vlt.handle());
-				//thisCol = mesh_list[current_mesh].color(vlt.handle());
+				thisCoord = mesh_list[current_mesh].point(*vlt);
+				//thisCol = mesh_list[current_mesh].color(*vlt);
 				
 				thisCol[0] = 1.0f;
 				thisCol[1] = 1.0f;
@@ -2632,8 +2630,8 @@ void display(GLFWwindow* window) {
 				glLineWidth(1.5);
 				//Draw wireframe
 				for (MyMesh::EdgeIter e_it = mesh_list[current_mesh].edges_begin(); e_it != mesh_list[current_mesh].edges_end(); ++e_it) {
-					MyMesh::Point to = mesh_list[current_mesh].point(mesh_list[current_mesh].to_vertex_handle(mesh_list[current_mesh].halfedge_handle(e_it, 0)));
-					MyMesh::Point from = mesh_list[current_mesh].point(mesh_list[current_mesh].from_vertex_handle(mesh_list[current_mesh].halfedge_handle(e_it, 0)));
+					MyMesh::Point to = mesh_list[current_mesh].point(mesh_list[current_mesh].to_vertex_handle(mesh_list[current_mesh].halfedge_handle(*e_it, 0)));
+					MyMesh::Point from = mesh_list[current_mesh].point(mesh_list[current_mesh].from_vertex_handle(mesh_list[current_mesh].halfedge_handle(*e_it, 0)));
 					glBegin(GL_LINE_STRIP);
 					OpenMesh::Vec4f thisCol;
 
@@ -2650,25 +2648,25 @@ void display(GLFWwindow* window) {
 			glColor3f(0.0f, 0.0f, 0.0f);
 			for (MyMesh::FaceIter f_it = mesh_list[current_mesh].faces_begin(); f_it != mesh_list[current_mesh].faces_end(); ++f_it) {
 				//MyMesh::FaceVertexIter OpenMesh::PolyConnectivity::FaceVertexIter OpenMesh::PolyConnectivity::fv_iter(FaceHandle _fh); (FaceHandle _fh);
-				OpenMesh::FaceHandle fa = f_it.handle();
+				OpenMesh::FaceHandle fa = *f_it;
 				OpenMesh::Vec3f thisCol;
 				thisCol = mesh_list[current_mesh].normal(fa);
 				float col_scale_factor = 1.0 / max_mean_curvture;
 				if (showMeanCurvature) {
 
 
-					for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi; ++fvi) {
+					for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi.is_valid(); ++fvi) {
 						OpenMesh::Vec3f thisCoord;
 						OpenMesh::Vec3f thisCol;
-						thisCoord = mesh_list[current_mesh].point(fvi.handle());
+						thisCoord = mesh_list[current_mesh].point(*fvi);
 
 						//OpenMesh::Vec4f thisCol;
-						//thisCol = mesh_list[current_mesh].color(fvi.handle());
+						//thisCol = mesh_list[current_mesh].color(*fvi);
 
-						float thisH = mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(fvi.handle()));
-						float thisK = mesh_list[current_mesh].property(gauss_curvature, OpenMesh::VertexHandle(fvi.handle()));
-						//float thisK1 = mesh_list[current_mesh].property(k1, OpenMesh::VertexHandle(fvi.handle()));
-						//float thisK2 = mesh_list[current_mesh].property(k2, OpenMesh::VertexHandle(fvi.handle()));
+						float thisH = mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(*fvi));
+						float thisK = mesh_list[current_mesh].property(gauss_curvature, OpenMesh::VertexHandle(*fvi));
+						//float thisK1 = mesh_list[current_mesh].property(k1, OpenMesh::VertexHandle(*fvi));
+						//float thisK2 = mesh_list[current_mesh].property(k2, OpenMesh::VertexHandle(*fvi));
 					
 
 						//thisCol = simpleHColourMap(thisH);
@@ -2680,23 +2678,23 @@ void display(GLFWwindow* window) {
 
 						glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
 
-						//std::cout << mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(fvi.handle())) << "\n";
+						//std::cout << mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(*fvi)) << "\n";
 
 					}
 				}
 				else if (showGaussCurvature) {
 
-					for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi; ++fvi) {
+					for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi.is_valid(); ++fvi) {
 						OpenMesh::Vec3f thisCoord;
 						OpenMesh::Vec3f thisCol;
-						thisCoord = mesh_list[current_mesh].point(fvi.handle());
+						thisCoord = mesh_list[current_mesh].point(*fvi);
 
 						//OpenMesh::Vec4f thisCol;
-						//thisCol = mesh_list[current_mesh].color(fvi.handle());
+						//thisCol = mesh_list[current_mesh].color(*fvi);
 												
-						float thisK = mesh_list[current_mesh].property(gauss_curvature, OpenMesh::VertexHandle(fvi.handle()));
-						float thisK1 = mesh_list[current_mesh].property(k1, OpenMesh::VertexHandle(fvi.handle()));
-						float thisK2 = mesh_list[current_mesh].property(k2, OpenMesh::VertexHandle(fvi.handle()));
+						float thisK = mesh_list[current_mesh].property(gauss_curvature, OpenMesh::VertexHandle(*fvi));
+						float thisK1 = mesh_list[current_mesh].property(k1, OpenMesh::VertexHandle(*fvi));
+						float thisK2 = mesh_list[current_mesh].property(k2, OpenMesh::VertexHandle(*fvi));
 												
 						thisCol = simpleColourMap(thisK, max_gauss_curvture, min_gauss_curvture);
 
@@ -2708,21 +2706,21 @@ void display(GLFWwindow* window) {
 
 						glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
 
-						//std::cout << mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(fvi.handle())) << "\n";
+						//std::cout << mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(*fvi)) << "\n";
 
 					}
 				}
 				else if (showPrincipleCurvature) {
-					for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi; ++fvi) {
+					for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi.is_valid(); ++fvi) {
 						OpenMesh::Vec3f thisCoord;
 						OpenMesh::Vec3f thisCol;
-						thisCoord = mesh_list[current_mesh].point(fvi.handle());
+						thisCoord = mesh_list[current_mesh].point(*fvi);
 
 						//OpenMesh::Vec4f thisCol;
-						//thisCol = mesh_list[current_mesh].color(fvi.handle());
+						//thisCol = mesh_list[current_mesh].color(*fvi);
 												
-						float thisK1 = mesh_list[current_mesh].property(k1, OpenMesh::VertexHandle(fvi.handle()));
-						float thisK2 = mesh_list[current_mesh].property(k2, OpenMesh::VertexHandle(fvi.handle()));
+						float thisK1 = mesh_list[current_mesh].property(k1, OpenMesh::VertexHandle(*fvi));
+						float thisK2 = mesh_list[current_mesh].property(k2, OpenMesh::VertexHandle(*fvi));
 
 						//thisCol = simpleColourMap(thisK, max_gauss_curvture, min_gauss_curvture);
 						thisCol = principleKColourmap(thisK1, thisK2);
@@ -2742,14 +2740,14 @@ void display(GLFWwindow* window) {
 							glColor3f(thisCol[0], thisCol[1], thisCol[2]);
 						}
 					}
-					for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi; ++fvi) {
+					for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi.is_valid(); ++fvi) {
 						OpenMesh::Vec3f thisCoord;
-						thisCoord = mesh_list[current_mesh].point(fvi.handle());
+						thisCoord = mesh_list[current_mesh].point(*fvi);
 						if (smoothFaces && !wireframe) {
 							//OpenMesh::Vec4f thisCol;
-							//thisCol = mesh_list[current_mesh].color(fvi.handle());
+							//thisCol = mesh_list[current_mesh].color(*fvi);
 							OpenMesh::Vec3f thisCol;
-							thisCol = mesh_list[current_mesh].normal(fvi.handle());
+							thisCol = mesh_list[current_mesh].normal(*fvi);
 							glColor3f(thisCol[0], thisCol[1], thisCol[2]);
 						}
 						glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
@@ -2840,13 +2838,16 @@ int main(void)
 
 	for (int i = 0; i < input_files.size(); i++) {
 		current_mesh = i;
-		mesh_list.push_back(MyMesh());
+		auto mesh = MyMesh();
 
-		if (!OpenMesh::IO::read_mesh(mesh_list[current_mesh], input_files[i]))
+		if (!OpenMesh::IO::read_mesh(mesh, input_files[i]))
 		{
+
 			std::cerr << "read error\n";
 			exit(1);
 		}
+		mesh_list.push_back(mesh);
+
 	}
 	//_______READ MESH________________________
 

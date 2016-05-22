@@ -1,0 +1,13 @@
+prefix=/Users/Ben/Google Drive/Academics/Study Abroad/COMPM080/framework/lib/extern/glfw-3.1.2/install
+exec_prefix=${prefix}
+includedir=${prefix}/include
+libdir=${exec_prefix}/lib
+
+Name: GLFW
+Description: A multi-platform library for OpenGL, window and input
+Version: 3.1.2
+URL: http://www.glfw.org/
+Requires.private: 
+Libs: -L${libdir} -lglfw
+Libs.private:  -framework Cocoa -framework OpenGL -framework IOKit -framework CoreFoundation -framework CoreVideo
+Cflags: -I${includedir}
