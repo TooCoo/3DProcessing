@@ -94,6 +94,8 @@ bool smoothFaces = true;
 bool showMeanCurvature = false;
 bool showGaussCurvature = false;
 bool showPrincipleCurvature = false;
+bool showSpectralWeight = false;
+int whichEigToDraw = 5;
 TranformationMatrix tm = TranformationMatrix();
 MatrixXd globalRotationMatrix = tm.getRotationMatrix(0.0, 0.0, 0.0);
 
@@ -154,7 +156,9 @@ MyMesh unchangedMesh;
 
 Eigen::MatrixXd evecs;
 Eigen::MatrixXd evecs_coeffs;
-int nEVecsToUse = 1;
+double eig_inc = 0.5;
+Eigen::MatrixXd displacementValues;
+int nEVecsToUse = 100;
 
 // ----------------------------------------------------------------------------
 
@@ -228,6 +232,7 @@ void ToggleShowPrincipleCurvature() {
 	showPrincipleCurvature = !showPrincipleCurvature;
 	showMeanCurvature = false;
 	showGaussCurvature = false;
+	showSpectralWeight = false;
 }
 
 void ToggleShowMeanCurvature() {
@@ -244,7 +249,35 @@ void ToggleShowGaussCurvature() {
 	showGaussCurvature = !showGaussCurvature;
 	showMeanCurvature = false;
 	showPrincipleCurvature = false;
+	showSpectralWeight = false;
 }
+
+void ToggleShowSpectralWeighting() {
+	
+	if (showSpectralWeight) {
+		whichEigToDraw++;
+
+		std::cout << whichEigToDraw << "\n";
+
+		if (whichEigToDraw == nEVecsToUse) {
+			whichEigToDraw = 0;
+		}
+
+		std::cout << whichEigToDraw << "\n";
+		
+	}
+	else {
+		showSpectralWeight = true;
+	}
+
+	std::cout << "Showing weight of " << whichEigToDraw << "th eigen vector\n";
+		
+	showMeanCurvature = false;
+	showPrincipleCurvature = false;
+	showGaussCurvature = false;
+}
+
+
 
 void ToggleWireframe() {
 	std::cout << "Render mode: toggled wireframe\n";
@@ -1966,6 +1999,10 @@ void remakeFromEVecs(int nLargestEigs) {
 	Eigen::MatrixXd Xn1Mat = Eigen::MatrixXd::Zero(N, 1);
 	Eigen::MatrixXd Yn1Mat = Eigen::MatrixXd::Zero(N, 1);
 	Eigen::MatrixXd Zn1Mat = Eigen::MatrixXd::Zero(N, 1);
+
+	Eigen::MatrixXd Xn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Yn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Zn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
 		
 	std::cout << "nEig: " << nLargestEigs << "\n";
 
@@ -1974,24 +2011,57 @@ void remakeFromEVecs(int nLargestEigs) {
 		std::cout << "not enough e vecs\n";
 	}
 
+	
+	displacementValues = Eigen::MatrixXd::Zero(N, nLargestEigs);
+
 	for (int i = 0; i < nLargestEigs; i++) {	
 
 		MatrixXd thisEigenVec = Eigen::MatrixXd::Zero(N, 1);
 		
 		for (int j = 0; j < N; j++) {
-
 			thisEigenVec(j, 0) = evecs(j, i);
 		}
 		
-		thisEigenVec *= evecs_coeffs(i, 0);
+		
 
 		// sum of E^T X E	-	where E is the eigen vector, and X is the original point coords
 		// The (0, 0) refers to E^T X being a 1x1 matrix which in turn scales the eigen vecs
-		Xn1Mat += (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
-		//Yn1Mat += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
-		Yn1Mat += (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
-		//Zn1Mat += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+		Xn1Mat += (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;		
+		Yn1Mat += (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;		
 		Zn1Mat += (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+
+		Xn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
+		Yn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
+		Zn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+
+		//thisEigenVec *= evecs_coeffs(i, 0);
+		thisEigenVec *= 2.0;
+
+		//Keep track of a displacement of the mesh when an eigen vector coeff is changed
+		Eigen::MatrixXd Xn1MatDisp = Xn1Mat + (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
+		Eigen::MatrixXd Yn1MatDisp = Yn1Mat + (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
+		Eigen::MatrixXd Zn1MatDisp = Zn1Mat + (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+		Xn1MatDisp -= Xn1Mat;
+		Yn1MatDisp -= Xn1Mat;
+		Zn1MatDisp -= Xn1Mat;
+
+		double max_disp = 0.0;
+
+		for (int k = 0; k < N; k++) {
+			displacementValues(k, i) = Xn1MatDisp(k, 0) * Xn1MatDisp(k, 0) + Yn1MatDisp(k, 0) * Yn1MatDisp(k, 0) + Zn1MatDisp(k, 0)* Zn1MatDisp(k, 0);
+			//displacementValues(k, i) = sqrt(displacementValues(k, i));
+			if (displacementValues(k, i) > max_disp) max_disp = displacementValues(k, i);
+		}
+
+		max_disp = (1.0 / max_disp); // this is now a scale factor
+
+		for (int k = 0; k < N; k++) {
+			displacementValues(k, i) *= max_disp;
+			
+		}
+
+
+		
 
 	}
 			
@@ -2000,9 +2070,9 @@ void remakeFromEVecs(int nLargestEigs) {
 
 		OpenMesh::Vec3f newCoord;
 
-		newCoord[0] = Xn1Mat(vlt.handle().idx(), 0);
-		newCoord[1] = Yn1Mat(vlt.handle().idx(), 0);
-		newCoord[2] = Zn1Mat(vlt.handle().idx(), 0);
+		newCoord[0] = Xn1MatOutput(vlt.handle().idx(), 0);
+		newCoord[1] = Yn1MatOutput(vlt.handle().idx(), 0);
+		newCoord[2] = Zn1MatOutput(vlt.handle().idx(), 0);
 
 		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
 
@@ -2333,6 +2403,7 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 		if (key == GLFW_KEY_K && action == GLFW_PRESS) {
 			//double lambda = -1.0;			
 			int n_largest_eigs = 50;
+			nEVecsToUse += 3;
 			//eigenReconstruction(lambda, n_largest_eigs);
 			
 			if (nEVecsToUse == 1) {
@@ -2342,10 +2413,18 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 				findEigenVectors(nEVecsToUse);				
 				remakeFromEVecs(nEVecsToUse);
 			}
-			
-
-			nEVecsToUse++;
 		}
+
+		if (key == GLFW_KEY_KP_ADD && action == GLFW_PRESS) {
+			evecs_coeffs(whichEigToDraw) += eig_inc;
+			remakeFromEVecs(nEVecsToUse);
+		}
+
+		if (key == GLFW_KEY_KP_SUBTRACT && action == GLFW_PRESS) {
+			evecs_coeffs(whichEigToDraw) -= eig_inc;
+			remakeFromEVecs(nEVecsToUse);
+		}
+
 		//in help
 		if (key == GLFW_KEY_L && action == GLFW_PRESS) {
 			//alignNormals();
@@ -2841,15 +2920,6 @@ void display(GLFWwindow* window) {
 	float ratio;
 	int width, height;
 
-	//max_mean_curvture = 0.0005;
-	//min_mean_curvture = -0.0005;
-
-	//max_gauss_curvture = 300000.0;
-	//min_gauss_curvture = -300000.0;
-
-	//max_mean_curvture = 2000;
-	//min_mean_curvture = -2000;
-
 	glfwGetFramebufferSize(window, &width, &height);
 	ratio = width / (float)height;
 
@@ -2863,8 +2933,7 @@ void display(GLFWwindow* window) {
 	glLoadIdentity();
 	glOrtho(-ratio, ratio, -1.f, 1.f, -1.f, 1.f);
 	glMatrixMode(GL_MODELVIEW);
-
-
+	
 	glLoadIdentity();
 
 	for (int i = 0; i < mesh_list.size(); i++) {
@@ -2893,12 +2962,11 @@ void display(GLFWwindow* window) {
 			glBegin(GL_POINTS);
 
 			for (vlt = vBegin; vlt != vEnd; ++vlt) {
-				//do something here
+				
 				OpenMesh::Vec3f thisCoord;
 				OpenMesh::Vec4f thisCol;
 				thisCoord = mesh_list[current_mesh].point(vlt.handle());
-				//thisCol = mesh_list[current_mesh].color(vlt.handle());
-
+				
 				thisCol[0] = 1.0f;
 				thisCol[1] = 1.0f;
 				thisCol[2] = 1.0f;
@@ -2948,9 +3016,6 @@ void display(GLFWwindow* window) {
 						OpenMesh::Vec3f thisCoord;
 						OpenMesh::Vec3f thisCol;
 						thisCoord = mesh_list[current_mesh].point(fvi.handle());
-
-						//OpenMesh::Vec4f thisCol;
-						//thisCol = mesh_list[current_mesh].color(fvi.handle());
 
 						float thisH = mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(fvi.handle()));
 						float thisK = mesh_list[current_mesh].property(gauss_curvature, OpenMesh::VertexHandle(fvi.handle()));
@@ -3023,6 +3088,33 @@ void display(GLFWwindow* window) {
 						glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
 					}
 				}
+				else if (showSpectralWeight) {
+
+					//bool showSpectralWeight = true;
+					//int whichEigToDraw = 5;
+					//Eigen::MatrixXd displacementValues;
+
+					for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi; ++fvi) {
+						OpenMesh::Vec3f thisCoord;
+						OpenMesh::Vec3f thisCol;
+						thisCoord = mesh_list[current_mesh].point(fvi.handle());
+
+						//OpenMesh::Vec4f thisCol;
+						//thisCol = mesh_list[current_mesh].color(fvi.handle());
+						
+						thisCol[0] = displacementValues(fvi.handle().idx(), whichEigToDraw);
+						thisCol[1] = displacementValues(fvi.handle().idx(), whichEigToDraw);
+						thisCol[2] = displacementValues(fvi.handle().idx(), whichEigToDraw);
+
+						//thisCol = simpleHColourMap(thisH);
+						glColor3f(thisCol[0], thisCol[1], thisCol[2]);
+
+						//gauss curvature
+						//glColor3f(thisK, thisK, thisK);
+
+						glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
+					}
+				}
 				else {
 					if (!smoothFaces) {
 						if (!wireframe) {
@@ -3085,10 +3177,13 @@ int main(void)
 	std::string filename_goat = "Goat.obj";
 	std::string filename_shark = "Shark.obj";
 	std::string filename_cube = "cube.obj";
+	std::string filename_ox = "ox.obj"; //low poly, blocky model I made in blender
+	std::string filename_ox1 = "ox_sd1.obj"; //subsurface division 1
+	std::string filename_ox2= "ox_sd2.obj"; //subsurface division 2
 
 	std::vector<std::string> input_files;
 	
-	input_files.push_back(filename_cube);
+	input_files.push_back(filename_ox1);
 										
 	std::cout << "loading meshes...";
 
@@ -3118,7 +3213,7 @@ int main(void)
 	buttonList.push_back(Button{ 105, 5, 100, 25, 0, 0, "Show H", "Show H", ToggleShowMeanCurvature });
 	buttonList.push_back(Button{ 205, 5, 100, 25, 0, 0, "Wireframe", "Wireframe", ToggleWireframe });
 	buttonList.push_back(Button{ 305, 5, 100, 25, 0, 0, "Pointcloud", "Pointcloud", TogglePointCloud });
-	buttonList.push_back(Button{ 405, 5, 100, 25, 0, 0, "Show K", "Show K", ToggleShowGaussCurvature });
+	buttonList.push_back(Button{ 405, 5, 100, 25, 0, 0, "Show E weight", "Show E weight", ToggleShowSpectralWeighting });
 	buttonList.push_back(Button{ 505, 5, 100, 25, 0, 0, "Show K1 K2", "Show K1 K2", ToggleShowPrincipleCurvature });
 	
 
