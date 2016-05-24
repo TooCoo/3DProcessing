@@ -28,22 +28,23 @@ set(GLFW_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib/glfw-3.1.2)
 add_subdirectory(${GLFW_DIR})
 include_directories(${GLFW_DIR}/include)
 
-# GLFW
-set(OpenMesh_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib/OpenMesh-6.0)
-add_subdirectory(${OpenMesh_DIR})
-include_directories(${OpenMesh_DIR}/include)
+# OpenMesh - not sure how to make this work ATM
+#set(OpenMesh_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib/OpenMesh-6.0)
+#add_subdirectory(${OpenMesh_DIR})
+#include_directories(${OpenMesh_DIR}/include)
 
 
 ######################################################################
 # BUILD EXECUTABLES
 ######################################################################
 
-find_library(ANN NAMES "libANN" PATHS ${ANN_INCLUDE_DIR}/lib NO_DEFAULT_PATH)
+find_library(ANN NAMES "libANN.a" PATHS ${ANN_INCLUDE_DIR}/lib)
+
 find_package(GLUT)
 
 # source
 set(SOURCE_FILES main.cpp)
 add_executable(3d_processing ${SOURCE_FILES})
 
-target_link_libraries(3d_processing glfw ${ANN} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} ${GLFW_LIBRARIES} ${OPENMESH_LIBRARIES})
+target_link_libraries(3d_processing glfw ${ANN} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} ${GLFW_LIBRARIES} OpenMeshCore OpenMeshTools)
 
