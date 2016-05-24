@@ -93,6 +93,8 @@ bool smoothFaces = true;
 bool showMeanCurvature = false;
 bool showGaussCurvature = false;
 bool showPrincipleCurvature = false;
+bool showSpectralWeight = false;
+int whichEigToDraw = 5;
 TranformationMatrix tm = TranformationMatrix();
 MatrixXd globalRotationMatrix = tm.getRotationMatrix(0.0, 0.0, 0.0);
 
@@ -145,6 +147,18 @@ double min_mean_curvture = 10000.0;
 //MyMesh mesh;
 int current_mesh = 0;
 std::vector<MyMesh> mesh_list;
+
+MyMesh unchangedMesh;
+// ----------------------------------------------------------------------------
+
+// -------------------Matrix holding the eigen vectors-------------------------
+
+Eigen::MatrixXd evecs;
+Eigen::MatrixXd evecs_coeffs;
+double eig_inc = 0.5;
+Eigen::MatrixXd displacementValues;
+int nEVecsToUse = 100;
+
 // ----------------------------------------------------------------------------
 
 // ----------------------- Mouse functionality---------------------------------
@@ -174,7 +188,7 @@ Mouse TheMouse = { 0,0,0,0,0 };
 // ---------------------- Button interaction System -------------------------
 // Based on code found at: https://nccastaff.bournemouth.ac.uk/jmacey/RobTheBloke/www/opengl_programming.html
 // Modified for my use
-typedef void(*ButtonCallback)(); 
+typedef void(*ButtonCallback)();
 
 //struct for button
 struct Button
@@ -193,7 +207,11 @@ struct Button
 };
 
 typedef struct Button Button;
+std::vector<Button> buttonList;
 
+
+
+//	Button functions:
 
 void TogglePointCloud() {
     pointcloud = !pointcloud;
@@ -206,13 +224,14 @@ void ToggleShading() {
 }
 
 void ToggleShowPrincipleCurvature() {
-    std::cout << "Toggled show principle curvature\n";
-    std::cout << "\t colour codes:\t Red:\t elliptic surface\n";
-    std::cout << "\t \t Green:\t parabolic\n";
-    std::cout << "\t \t Blue:\t hyperbolic\n";
-    showPrincipleCurvature = !showPrincipleCurvature;
-    showMeanCurvature = false;
-    showGaussCurvature = false;
+	std::cout << "Toggled show principle curvature\n";
+	std::cout << "\t colour codes:\t Red:\t elliptic surface\n";
+	std::cout << "\t \t Green:\t parabolic\n";
+	std::cout << "\t \t Blue:\t hyperbolic\n";
+	showPrincipleCurvature = !showPrincipleCurvature;
+	showMeanCurvature = false;
+	showGaussCurvature = false;
+	showSpectralWeight = false;
 }
 
 void ToggleShowMeanCurvature() {
@@ -224,23 +243,45 @@ void ToggleShowMeanCurvature() {
 }
 
 void ToggleShowGaussCurvature() {
-    std::cout << "Toggled show Gaussian curvature\n";
-    std::cout << "\t colour codes: Red: low values, Blue: High value\n";
-    showGaussCurvature = !showGaussCurvature;
-    showMeanCurvature = false;
-    showPrincipleCurvature = false;
+	std::cout << "Toggled show Gaussian curvature\n";
+	std::cout << "\t colour codes: Red: low values, Blue: High value\n";
+	showGaussCurvature = !showGaussCurvature;
+	showMeanCurvature = false;
+	showPrincipleCurvature = false;
+	showSpectralWeight = false;
 }
+
+void ToggleShowSpectralWeighting() {
+
+	if (showSpectralWeight) {
+		whichEigToDraw++;
+
+		std::cout << whichEigToDraw << "\n";
+
+		if (whichEigToDraw == nEVecsToUse) {
+			whichEigToDraw = 0;
+		}
+
+		std::cout << whichEigToDraw << "\n";
+
+	}
+	else {
+		showSpectralWeight = true;
+	}
+
+	std::cout << "Showing weight of " << whichEigToDraw << "th eigen vector\n";
+
+	showMeanCurvature = false;
+	showPrincipleCurvature = false;
+	showGaussCurvature = false;
+}
+
+
 
 void ToggleWireframe() {
     std::cout << "Render mode: toggled wireframe\n";
     wireframe = !wireframe;
 }
-
-//example of making a button:
-
-std::vector<Button> buttonList;
-
-
 
 //returns 1 or zero if mouse is above button
 int ButtonClickTest(Button* b, int x, int y)
@@ -352,6 +393,8 @@ bool ButtonPassive(Button *b, int x, int y)
 
 }
 
+//	End of Button Functions
+//
 
 // ----------------------------------------------------------------------------
 
@@ -1694,6 +1737,18 @@ void implicitLaplacianMeshSmoothing(double lambda) {
 
 void eigenReconstruction(double lambda, int nLargestEigs) {
 
+	std::cout << "\nstarting...\n";
+
+	//use mesh 0
+	current_mesh = 0;
+	//iterate over all vertices
+	MyMesh::VertexIter vlt, vBegin, vEnd;
+	vBegin = mesh_list[current_mesh].vertices_begin();
+	vEnd = mesh_list[current_mesh].vertices_end();
+	int N = 0;
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		N++;
+	}
     //find N
     current_mesh = 0;
     //iterate over all vertices
@@ -1705,12 +1760,15 @@ void eigenReconstruction(double lambda, int nLargestEigs) {
         N++;
     }
 
-    //construct A matrix
-    //A = I - lambda L
+	//construct A matrix - discrete laplacian
+	//A = I - lambda L
 
-    Eigen::SparseMatrix<double> L = Eigen::SparseMatrix<double>(N, N);
-    //Eigen::VectorXd Xn(N);// = Eigen::VectorXd::Zero(1, N);
-    Eigen::VectorXd Xn(N), Yn(N), Zn(N), Xn1(N), Yn1(N), Zn1(N);
+	Eigen::SparseMatrix<double> L = Eigen::SparseMatrix<double>(N, N);
+
+	// make vectors (as a matrix) for old coords
+	Eigen::MatrixXd XnMat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd YnMat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd ZnMat = Eigen::MatrixXd::Zero(N, 1);
 
     //fill matrix and vector
 
@@ -1720,33 +1778,321 @@ void eigenReconstruction(double lambda, int nLargestEigs) {
         int i = vh.idx();
         int n_neighbours = 0;
 
-        Xn(i) = mesh_list[current_mesh].point(vh)[0];
-        Yn(i) = mesh_list[current_mesh].point(vh)[1];
-        Zn(i) = mesh_list[current_mesh].point(vh)[2];
+		XnMat(i, 0) = mesh_list[current_mesh].point(vh)[0];
+		YnMat(i, 0) = mesh_list[current_mesh].point(vh)[1];
+		ZnMat(i, 0) = mesh_list[current_mesh].point(vh)[2];
 
-        //now iterate over adjacent vertices
-        for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi.is_valid(); ++vvi) {
-            OpenMesh::VertexHandle vh2 = *vvi;
-            n_neighbours++;
-            //int j = vh2.idx();
-            //L.insert(i, j) = lambda * 1.0;
-        }
-        double valence_normalisation = 1.0 / double(n_neighbours);
+		//now iterate over adjacent vertices
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
+			OpenMesh::VertexHandle vh2 = vvi.handle();
+			n_neighbours++;
+		}
 
-        for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi.is_valid(); ++vvi) {
-            OpenMesh::VertexHandle vh2 = *vvi;
-            //n_neighbours++;
-            int j = vh2.idx();
-            L.insert(i, j) = valence_normalisation * lambda * 1.0;
-        }
-        L.insert(i, i) = 1.0 - 1.0*lambda;
+		double valence_normalisation = 1.0 / double(n_neighbours);
+
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
+			OpenMesh::VertexHandle vh2 = vvi.handle();
+			//n_neighbours++;
+			int j = vh2.idx();
+			L.insert(i, j) = valence_normalisation * lambda * 1.0;
+		}
+		L.insert(i, i) = 1.0 - 1.0*lambda;
 
     }
+
+	std::cout << "\nLaplacian matrix made...\n";
+
+	// now have the laplacian matrix
+
+	//take an eigen decomposition of it:
+	Spectra::SparseGenMatProd<double> op(L);
+
+	// ncv affects rate of convergance - higher means faster convergance but also more memory usage
+	// ncv must be greater than n_largest Eigs + 2 and less than n which is size of the matrix
+	// I've found through trial and error that below relation returns the desired number of eigen vectors
+	int ncv = nLargestEigs + 30;
+
+	// Want the dominant eigen vectors which are associated with the smallest magnitude of eiven values
+	Spectra::GenEigsSolver< double, Spectra::SMALLEST_MAGN, Spectra::SparseGenMatProd<double> > eigs(&op, nLargestEigs, ncv);
+	// Initialize and compute
+	std::cout << "\nInitialising and solving...\n";
+
+	eigs.init();
+	int nconv = eigs.compute();
+
+	// Retrieve results
+	Eigen::VectorXcd evalues;
+	Eigen::MatrixXd evecs;
+	if (eigs.info() == Spectra::SUCCESSFUL) {
+		evalues = eigs.eigenvalues();
+		evecs = eigs.eigenvectors().real();
+		std::cout << "eval and evec assigned\n";
+	}
+	else {
+		std::cout << "Fewer eigen vectors than requested were returned, likely due to ncv being too small.\n";
+		std::cout << "will continue with retuned eigen vecs\n";
+		evecs = eigs.eigenvectors().real();
+	}
+
+	// new x = sum(i) of (x'e)e where e is the eigen vec to i
+	std::cout << "\nSolved, now reconstructing mesh\n";
+
+	Eigen::MatrixXd Xn1Mat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Yn1Mat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Zn1Mat = Eigen::MatrixXd::Zero(N, 1);
+
+	std::cout << "Xn size: " << N << "\n";
+	std::cout << "nEig: " << nLargestEigs << "\n";
+
+	for (int i = 0; i < evecs.cols(); i++) {
+
+		MatrixXd thisEigenVec = Eigen::MatrixXd::Zero(N, 1);
+
+		for (int j = 0; j < N; j++) {
+
+			thisEigenVec(j, 0) = evecs(j, i);
+		}
+
+
+		// sum of E^T X E	-	where E is the eigen vector, and X is the original point coords
+		// The (0, 0) refers to E^T X being a 1x1 matrix which in turn scales the eigen vecs
+		Xn1Mat += (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
+		Yn1Mat += (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
+		Zn1Mat += (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+
+	}
+
+
+	std::cout << "saving new coords...\n";
+
+
+	//save new coords - update
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+
+		OpenMesh::Vec3f newCoord;
+
+		newCoord[0] = Xn1Mat(vlt.handle().idx(), 0);
+		newCoord[1] = Yn1Mat(vlt.handle().idx(), 0);
+		newCoord[2] = Zn1Mat(vlt.handle().idx(), 0);
+
+		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+
+	}
+
+	// find new normals for colours
+	findFaceNormals();
+	findVertNormalsFromFaces();
+
+	std::cout << "done.\n";
+
+}
+
+void findEigenVectors(int nLargestEigs) {
+
+	std::cout << "Finding Eigen Vectors... ";
+
+	double lambda = -1.0;
+
+	//use mesh 0
+	current_mesh = 0;
+	//iterate over all vertices
+	MyMesh::VertexIter vlt, vBegin, vEnd;
+	vBegin = mesh_list[current_mesh].vertices_begin();
+	vEnd = mesh_list[current_mesh].vertices_end();
+	int N = 0;
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		N++;
+	}
+
+	//construct A matrix - discrete laplacian
+	//A = I - lambda L
+
+	Eigen::SparseMatrix<double> L = Eigen::SparseMatrix<double>(N, N);
+
+	//fill matrix and vector
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		OpenMesh::VertexHandle vh = vlt.handle();
+
+		int i = vh.idx();
+		int n_neighbours = 0;
+
+		//now iterate over adjacent vertices
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
+			OpenMesh::VertexHandle vh2 = vvi.handle();
+			n_neighbours++;
+		}
+
+		double valence_normalisation = 1.0 / double(n_neighbours);
+
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
+			OpenMesh::VertexHandle vh2 = vvi.handle();
+			//n_neighbours++;
+			int j = vh2.idx();
+			L.insert(i, j) = valence_normalisation * lambda * 1.0;
+		}
+		L.insert(i, i) = 1.0 - 1.0*lambda;
+
+	}
+
+	// now have the laplacian matrix
+
+	//take an eigen decomposition of it:
+	Spectra::SparseGenMatProd<double> op(L);
+
+	// ncv affects rate of convergance - higher means faster convergance but also more memory usage
+	// ncv must be greater than n_largest Eigs + 2 and less than n which is size of the matrix
+	// I've found through trial and error that below relation returns the desired number of eigen vectors
+	int ncv = nLargestEigs + 30;
+
+	// Want the dominant eigen vectors which are associated with the smallest magnitude of eiven values
+	Spectra::GenEigsSolver< double, Spectra::SMALLEST_MAGN, Spectra::SparseGenMatProd<double> > eigs(&op, nLargestEigs, ncv);
+
+	// Initialize and compute
+
+	eigs.init();
+	int nconv = eigs.compute();
+
+	// Retrieve results
+	Eigen::VectorXcd evalues;
+	//Eigen::MatrixXd evecs; - now initialised as a global variable
+	if (eigs.info() == Spectra::SUCCESSFUL) {
+		evalues = eigs.eigenvalues();
+		evecs = eigs.eigenvectors().real();
+		std::cout << "eval and evec assigned\n";
+	}
+	else {
+		std::cout << "Fewer eigen vectors than requested were returned, likely due to ncv being too small.\n";
+		std::cout << "will continue with retuned eigen vecs\n";
+		evecs = eigs.eigenvectors().real();
+	}
+
+	evecs_coeffs = MatrixXd::Ones(nLargestEigs, 1);
 
 
 
 }
 
+void remakeFromEVecs(int nLargestEigs) {
+
+
+	//use mesh 0
+	current_mesh = 0;
+	//iterate over all vertices
+	MyMesh::VertexIter vlt, vBegin, vEnd;
+	vBegin = unchangedMesh.vertices_begin();
+	vEnd = unchangedMesh.vertices_end();
+
+	int N = 0;
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		N++;
+	}
+
+	// make vectors (as a matrix) for old coords
+	Eigen::MatrixXd XnMat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd YnMat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd ZnMat = Eigen::MatrixXd::Zero(N, 1);
+
+	//fill vector
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		OpenMesh::VertexHandle vh = vlt.handle();
+
+		int i = vh.idx();
+		int n_neighbours = 0;
+
+		XnMat(i, 0) = unchangedMesh.point(vh)[0];
+		YnMat(i, 0) = unchangedMesh.point(vh)[1];
+		ZnMat(i, 0) = unchangedMesh.point(vh)[2];
+
+	}
+
+	// new points
+	Eigen::MatrixXd Xn1Mat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Yn1Mat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Zn1Mat = Eigen::MatrixXd::Zero(N, 1);
+
+	Eigen::MatrixXd Xn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Yn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Zn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
+
+	std::cout << "nEig: " << nLargestEigs << "\n";
+
+	if (nLargestEigs > evecs.cols()) {
+		nLargestEigs = evecs.cols();
+		std::cout << "not enough e vecs\n";
+	}
+
+
+	displacementValues = Eigen::MatrixXd::Zero(N, nLargestEigs);
+
+	for (int i = 0; i < nLargestEigs; i++) {
+
+		MatrixXd thisEigenVec = Eigen::MatrixXd::Zero(N, 1);
+
+		for (int j = 0; j < N; j++) {
+			thisEigenVec(j, 0) = evecs(j, i);
+		}
+
+
+
+		// sum of E^T X E	-	where E is the eigen vector, and X is the original point coords
+		// The (0, 0) refers to E^T X being a 1x1 matrix which in turn scales the eigen vecs
+		Xn1Mat += (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
+		Yn1Mat += (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
+		Zn1Mat += (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+
+		Xn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
+		Yn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
+		Zn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+
+		//thisEigenVec *= evecs_coeffs(i, 0);
+		thisEigenVec *= 2.0;
+
+		//Keep track of a displacement of the mesh when an eigen vector coeff is changed
+		Eigen::MatrixXd Xn1MatDisp = Xn1Mat + (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
+		Eigen::MatrixXd Yn1MatDisp = Yn1Mat + (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
+		Eigen::MatrixXd Zn1MatDisp = Zn1Mat + (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+		Xn1MatDisp -= Xn1Mat;
+		Yn1MatDisp -= Xn1Mat;
+		Zn1MatDisp -= Xn1Mat;
+
+		double max_disp = 0.0;
+
+		for (int k = 0; k < N; k++) {
+			displacementValues(k, i) = Xn1MatDisp(k, 0) * Xn1MatDisp(k, 0) + Yn1MatDisp(k, 0) * Yn1MatDisp(k, 0) + Zn1MatDisp(k, 0)* Zn1MatDisp(k, 0);
+			//displacementValues(k, i) = sqrt(displacementValues(k, i));
+			if (displacementValues(k, i) > max_disp) max_disp = displacementValues(k, i);
+		}
+
+		max_disp = (1.0 / max_disp); // this is now a scale factor
+
+		for (int k = 0; k < N; k++) {
+			displacementValues(k, i) *= max_disp;
+
+		}
+
+
+
+
+	}
+
+	//save new coords - update
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+
+		OpenMesh::Vec3f newCoord;
+
+		newCoord[0] = Xn1MatOutput(vlt.handle().idx(), 0);
+		newCoord[1] = Yn1MatOutput(vlt.handle().idx(), 0);
+		newCoord[2] = Zn1MatOutput(vlt.handle().idx(), 0);
+
+		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+
+	}
+
+	// find new normals for colours
+	findFaceNormals();
+	findVertNormalsFromFaces();
+
+}
 
 void findGaussCurvature() {
     current_mesh = 0;
@@ -1817,25 +2163,27 @@ void findGaussCurvature() {
             OpenMesh::Vec3f point_B;
             OpenMesh::Vec3f point_C;
 
-            if (v1 == core_vert) {
-                point_A = v1;
-                point_B = v2;
-                point_C = v3;
-                //std::cout << "v1\n";
-            } else if (v2 == core_vert) {
-                point_A = v2;
-                point_B = v1;
-                point_C = v3;
-                //std::cout << "v2\n";
-            }else if (v3 == core_vert) {
-                point_A = v3;
-                point_B = v1;
-                point_C = v2;
-                //std::cout << "v3\n";
-            }
-            else {
-                std::cout << "Error in findGaussCurvature: cannot find starting vertex\n";
-            }
+			if (v1 == core_vert) {
+				point_A = v1;
+				point_B = v2;
+				point_C = v3;
+				//std::cout << "v1\n";
+			}
+			else if (v2 == core_vert) {
+				point_A = v2;
+				point_B = v1;
+				point_C = v3;
+				//std::cout << "v2\n";
+			}
+			else if (v3 == core_vert) {
+				point_A = v3;
+				point_B = v1;
+				point_C = v2;
+				//std::cout << "v3\n";
+			}
+			else {
+				std::cout << "Error in findGaussCurvature: cannot find starting vertex\n";
+			}
 
             if (point_A == point_B || point_A == point_C || point_B == point_C) {
                 std::cout << "Error in find gauss curvature: points are the same\n";
@@ -1847,7 +2195,7 @@ void findGaussCurvature() {
             //AB dot AC / |AB||AC| = cosThete
             //theta = acos(AB dot AC / |AB||AC|)
 
-            float theta = acos( OpenMesh::dot(vecAB, vecAC) / (vecAB.norm() * vecAC.norm()) );
+			float theta = acos(OpenMesh::dot(vecAB, vecAC) / (vecAB.norm() * vecAC.norm()));
 
             if (theta > max_angle) max_angle = theta;
             if (theta < min_angle) min_angle = theta;
@@ -2015,135 +2363,156 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 
     if (!editmode) {
 
-        //in help
-        if (key == GLFW_KEY_LEFT && action == GLFW_PRESS) {
-            global_rotation -= 5.0f;
-            std::cout << "Left\n";
-        }
-        //in help
-        if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS) {
-            global_rotation += 5.0f;
-            std::cout << "right\n";
-        }
-        //in help
-        if (key == GLFW_KEY_UP && action == GLFW_PRESS) {
-            globalScale += 1.0f;
-            std::cout << "UP: Zoom in\n";
-        }
-        //in help
-        if (key == GLFW_KEY_DOWN && action == GLFW_PRESS) {
-            globalScale -= 1.0f;
-            std::cout << "DOWN: Zoom out\n";
-        }
-        //in help
-        if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
-            global_translation = getCentreOfMesh(); //get centre
-            global_translation *= -4.0f;
-            std::cout << "SPACE: Mesh Centred\n";
-        }
-        //in help
-        if (key == GLFW_KEY_O && action == GLFW_PRESS) {
-            colourOverlap();
-            std::cout << "O: Overlap drawn\n";
-        }
-        //in help
-        if (key == GLFW_KEY_M && action == GLFW_PRESS) {
-            colourByMesh();
-            std::cout << "M: Mesh Coloured\n";
-        }
-        //in help
-        if (key == GLFW_KEY_N && action == GLFW_PRESS) {
-            std::cout << "N: Generating normals...\t";
-            findFaceNormals();
-            findVertNormalsFromFaces();
-            findGaussCurvature2();
-            std::cout << "Done\n";
-        }
-        //in help
-        if (key == GLFW_KEY_K && action == GLFW_PRESS) {
-            colourByNormals();
-            std::cout << "K: Colour by normals\n";
-        }
-        //in help
-        if (key == GLFW_KEY_L && action == GLFW_PRESS) {
-            //alignNormals();
-            std::cout << "L: implicit laplacian smoothing iteration... ";
-            double lambda = -1.0;
-            implicitLaplacianMeshSmoothing(lambda);
-            findFaceNormals();
-            findVertNormalsFromFaces();
-            findGaussCurvature2();
+		//in help
+		if (key == GLFW_KEY_LEFT && action == GLFW_PRESS) {
+			global_rotation -= 5.0f;
+			std::cout << "Left\n";
+		}
+		//in help
+		if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS) {
+			global_rotation += 5.0f;
+			std::cout << "right\n";
+		}
+		//in help
+		if (key == GLFW_KEY_UP && action == GLFW_PRESS) {
+			globalScale += 1.0f;
+			std::cout << "UP: Zoom in\n";
+		}
+		//in help
+		if (key == GLFW_KEY_DOWN && action == GLFW_PRESS) {
+			globalScale -= 1.0f;
+			std::cout << "DOWN: Zoom out\n";
+		}
+		//in help
+		if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
+			global_translation = getCentreOfMesh(); //get centre
+			global_translation *= -4.0f;
+			std::cout << "SPACE: Mesh Centred\n";
+		}
+		//in help
+		if (key == GLFW_KEY_O && action == GLFW_PRESS) {
+			colourOverlap();
+			std::cout << "O: Overlap drawn\n";
+		}
+		//in help
+		if (key == GLFW_KEY_M && action == GLFW_PRESS) {
+			colourByMesh();
+			std::cout << "M: Mesh Coloured\n";
+		}
+		//in help
+		if (key == GLFW_KEY_N && action == GLFW_PRESS) {
+			std::cout << "N: Generating normals...\t";
+			findFaceNormals();
+			findVertNormalsFromFaces();
+			findGaussCurvature2();
+			std::cout << "Done\n";
+		}
+		//in help
+		if (key == GLFW_KEY_K && action == GLFW_PRESS) {
+			//double lambda = -1.0;
+			int n_largest_eigs = 50;
+			nEVecsToUse += 3;
+			//eigenReconstruction(lambda, n_largest_eigs);
+
+			if (nEVecsToUse == 1) {
+				//findEigenVectors(n_largest_eigs);
+			}
+			else {
+				findEigenVectors(nEVecsToUse);
+				remakeFromEVecs(nEVecsToUse);
+			}
+		}
+
+		if (key == GLFW_KEY_KP_ADD && action == GLFW_PRESS) {
+			evecs_coeffs(whichEigToDraw) += eig_inc;
+			remakeFromEVecs(nEVecsToUse);
+		}
+
+		if (key == GLFW_KEY_KP_SUBTRACT && action == GLFW_PRESS) {
+			evecs_coeffs(whichEigToDraw) -= eig_inc;
+			remakeFromEVecs(nEVecsToUse);
+		}
+
+		//in help
+		if (key == GLFW_KEY_L && action == GLFW_PRESS) {
+			//alignNormals();
+			std::cout << "L: implicit laplacian smoothing iteration... ";
+			double lambda = -1.0;
+			implicitLaplacianMeshSmoothing(lambda);
+			findFaceNormals();
+			findVertNormalsFromFaces();
+			findGaussCurvature2();
 
 
-            std::cout << "Done\n";
-        }
-        //in help
-        if (key == GLFW_KEY_S && action == GLFW_PRESS) {
-            saveMesh();
-            std::cout << "S: mesh Saved\n";
-        }
+			std::cout << "Done\n";
+		}
+		//in help
+		if (key == GLFW_KEY_S && action == GLFW_PRESS) {
+			saveMesh();
+			std::cout << "S: mesh Saved\n";
+		}
 
-        //in help
-        if (key == GLFW_KEY_P && action == GLFW_PRESS) {
-            colourPhong();
-            std::cout << "P: Phong shading\n";
-        }
-        // in help
-        if (key == GLFW_KEY_C && action == GLFW_PRESS) {
-            moveMeshesToCommonCentre();
-            std::cout << "C: move meshes to Common Centre\n";
-        }
+		//in help
+		if (key == GLFW_KEY_P && action == GLFW_PRESS) {
+			colourPhong();
+			std::cout << "P: Phong shading\n";
+		}
+		// in help
+		if (key == GLFW_KEY_C && action == GLFW_PRESS) {
+			moveMeshesToCommonCentre();
+			std::cout << "C: move meshes to Common Centre\n";
+		}
 
-        //help
-        if (key == GLFW_KEY_R && action == GLFW_PRESS) {
-            moveMeshesToOrigin();
-            std::cout << "R: Meshes moved to Origin\n";
-        }
-        //help
-        if (key == GLFW_KEY_I && action == GLFW_PRESS) {
-            for (int i = 0; i < 10; i++) {
-                double lambda = -0.0000001;
-                applyDiffusionFlow(lambda);
-                findFaceNormals();
-                findVertNormalsFromFaces();
-                findGaussCurvature2();
-            }
-            std::cout << "I: apply diffusion smoothing\n";
-        }
+		//help
+		if (key == GLFW_KEY_R && action == GLFW_PRESS) {
+			moveMeshesToOrigin();
+			std::cout << "R: Meshes moved to Origin\n";
+		}
+		//help
+		if (key == GLFW_KEY_I && action == GLFW_PRESS) {
+			for (int i = 0; i < 10; i++) {
+				double lambda = -0.0000001;
+				applyDiffusionFlow(lambda);
+				findFaceNormals();
+				findVertNormalsFromFaces();
+				findGaussCurvature2();
+			}
+			std::cout << "I: apply diffusion smoothing\n";
+		}
 
-        //help
-        if (key == GLFW_KEY_G && action == GLFW_PRESS) {
-            double sigma = 0.0002;
-            addNoise(sigma);
-            std::cout << "G: Gaussian noise added, var: " << sigma << "\n";
-        }
+		//help
+		if (key == GLFW_KEY_G && action == GLFW_PRESS) {
+			double sigma = 0.0002;
+			addNoise(sigma);
+			std::cout << "G: Gaussian noise added, var: " << sigma << "\n";
+		}
 
-    }
-    else {
-        //in help
-        if (key == GLFW_KEY_R && action == GLFW_PRESS) {
-            rotation_mode = true;
-            translation_mode = false;
-            std::cout << "R: Rotation mode toggled\n";
-        }
-        //in help
-        if (key == GLFW_KEY_T && action == GLFW_PRESS) {
-            rotation_mode = false;
-            translation_mode = true;
-            std::cout << "R: Translation mode toggled\n";
-        }
-        //in help
-        if (translation_mode) {
-            if (key == GLFW_KEY_LEFT && action == GLFW_PRESS) {
-                editModeTranslate(-1.0);
-                std::cout << "Left: Mesh moved left\n";
-            }
-            //in help
-            if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS) {
-                editModeTranslate(1.0);
-                std::cout << "Right: Mesh moved right\n";
-            }
-        }
+	}
+	else {
+		//in help
+		if (key == GLFW_KEY_R && action == GLFW_PRESS) {
+			rotation_mode = true;
+			translation_mode = false;
+			std::cout << "R: Rotation mode toggled\n";
+		}
+		//in help
+		if (key == GLFW_KEY_T && action == GLFW_PRESS) {
+			rotation_mode = false;
+			translation_mode = true;
+			std::cout << "R: Translation mode toggled\n";
+		}
+		//in help
+		if (translation_mode) {
+			if (key == GLFW_KEY_LEFT && action == GLFW_PRESS) {
+				editModeTranslate(-1.0);
+				std::cout << "Left: Mesh moved left\n";
+			}
+			//in help
+			if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS) {
+				editModeTranslate(1.0);
+				std::cout << "Right: Mesh moved right\n";
+			}
+		}
 
         if (rotation_mode) {
             //in help
@@ -2182,7 +2551,7 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 
 }
 
-static void mouse_callback(GLFWwindow* window, int button, int action, int mods){
+static void mouse_callback(GLFWwindow* window, int button, int action, int mods) {
 
     if (button == GLFW_MOUSE_BUTTON_1) {
         //mouse button 1 - Left Mouse Button
@@ -2238,9 +2607,13 @@ static void mouse_moved_callback(GLFWwindow* window, double x_pos, double y_pos)
 
 }
 
-/* Draw string using glut bitmap
-*/
-void Font(void *font, const char *text, int x, int y)
+//	End of functions for user input
+//
+
+
+//	UI functions
+
+void Font(void *font, char *text, int x, int y)
 {
     glRasterPos2i(x, y);
 
@@ -2340,6 +2713,9 @@ void DrawGUI(void) {
     }
 
 }
+
+//	End of UI Funcitons
+//
 
 void display_pointcloud(GLFWwindow* window) {
     float ratio;
@@ -2552,17 +2928,8 @@ void display(GLFWwindow* window) {
     float ratio;
     int width, height;
 
-    //max_mean_curvture = 0.0005;
-    //min_mean_curvture = -0.0005;
-
-    //max_gauss_curvture = 300000.0;
-    //min_gauss_curvture = -300000.0;
-
-    //max_mean_curvture = 2000;
-    //min_mean_curvture = -2000;
-
-    glfwGetFramebufferSize(window, &width, &height);
-    ratio = width / (float)height;
+	glfwGetFramebufferSize(window, &width, &height);
+	ratio = width / (float)height;
 
     glViewport(0, 0, width, height);
     glEnable(GL_DEPTH_TEST);
@@ -2570,13 +2937,12 @@ void display(GLFWwindow* window) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(-ratio, ratio, -1.f, 1.f, -1.f, 1.f);
-    glMatrixMode(GL_MODELVIEW);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	glOrtho(-ratio, ratio, -1.f, 1.f, -1.f, 1.f);
+	glMatrixMode(GL_MODELVIEW);
 
-
-    glLoadIdentity();
+	glLoadIdentity();
 
     for (int i = 0; i < mesh_list.size(); i++) {
         //pop
@@ -2603,17 +2969,16 @@ void display(GLFWwindow* window) {
 
             glBegin(GL_POINTS);
 
-            for (vlt = vBegin; vlt != vEnd; ++vlt) {
-                //do something here
-                OpenMesh::Vec3f thisCoord;
-                OpenMesh::Vec4f thisCol;
-                thisCoord = mesh_list[current_mesh].point(*vlt);
-                //thisCol = mesh_list[current_mesh].color(*vlt);
+			for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
-                thisCol[0] = 1.0f;
-                thisCol[1] = 1.0f;
-                thisCol[2] = 1.0f;
-                thisCol[3] = 1.0f;
+				OpenMesh::Vec3f thisCoord;
+				OpenMesh::Vec4f thisCol;
+				thisCoord = mesh_list[current_mesh].point(vlt.handle());
+				
+				thisCol[0] = 1.0f;
+				thisCol[1] = 1.0f;
+				thisCol[2] = 1.0f;
+				thisCol[3] = 1.0f;
 
                 glColor3f(thisCol[0], thisCol[1], thisCol[2]);
                 glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
@@ -2660,18 +3025,15 @@ void display(GLFWwindow* window) {
                         OpenMesh::Vec3f thisCol;
                         thisCoord = mesh_list[current_mesh].point(*fvi);
 
-                        //OpenMesh::Vec4f thisCol;
-                        //thisCol = mesh_list[current_mesh].color(*fvi);
-
-                        float thisH = mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(*fvi));
-                        float thisK = mesh_list[current_mesh].property(gauss_curvature, OpenMesh::VertexHandle(*fvi));
-                        //float thisK1 = mesh_list[current_mesh].property(k1, OpenMesh::VertexHandle(*fvi));
-                        //float thisK2 = mesh_list[current_mesh].property(k2, OpenMesh::VertexHandle(*fvi));
+						float thisH = mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(fvi.handle()));
+						float thisK = mesh_list[current_mesh].property(gauss_curvature, OpenMesh::VertexHandle(fvi.handle()));
+						//float thisK1 = mesh_list[current_mesh].property(k1, OpenMesh::VertexHandle(fvi.handle()));
+						//float thisK2 = mesh_list[current_mesh].property(k2, OpenMesh::VertexHandle(fvi.handle()));
 
 
-                        //thisCol = simpleHColourMap(thisH);
-                        thisCol = simpleColourMap(thisH, max_mean_curvture, min_mean_curvture);
-                        glColor3f(thisCol[0], thisCol[1], thisCol[2]);
+						//thisCol = simpleHColourMap(thisH);
+						thisCol = simpleColourMap(thisH, max_mean_curvture, min_mean_curvture);
+						glColor3f(thisCol[0], thisCol[1], thisCol[2]);
 
                         //gauss curvature
                         //glColor3f(thisK, thisK, thisK);
@@ -2689,14 +3051,14 @@ void display(GLFWwindow* window) {
                         OpenMesh::Vec3f thisCol;
                         thisCoord = mesh_list[current_mesh].point(*fvi);
 
-                        //OpenMesh::Vec4f thisCol;
-                        //thisCol = mesh_list[current_mesh].color(*fvi);
+						//OpenMesh::Vec4f thisCol;
+						//thisCol = mesh_list[current_mesh].color(fvi.handle());
 
-                        float thisK = mesh_list[current_mesh].property(gauss_curvature, OpenMesh::VertexHandle(*fvi));
-                        float thisK1 = mesh_list[current_mesh].property(k1, OpenMesh::VertexHandle(*fvi));
-                        float thisK2 = mesh_list[current_mesh].property(k2, OpenMesh::VertexHandle(*fvi));
+						float thisK = mesh_list[current_mesh].property(gauss_curvature, OpenMesh::VertexHandle(fvi.handle()));
+						float thisK1 = mesh_list[current_mesh].property(k1, OpenMesh::VertexHandle(fvi.handle()));
+						float thisK2 = mesh_list[current_mesh].property(k2, OpenMesh::VertexHandle(fvi.handle()));
 
-                        thisCol = simpleColourMap(thisK, max_gauss_curvture, min_gauss_curvture);
+						thisCol = simpleColourMap(thisK, max_gauss_curvture, min_gauss_curvture);
 
                         //thisCol = simpleHColourMap(thisH);
                         glColor3f(thisCol[0], thisCol[1], thisCol[2]);
@@ -2731,26 +3093,53 @@ void display(GLFWwindow* window) {
                         //gauss curvature
                         //glColor3f(thisK, thisK, thisK);
 
-                        glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
-                    }
-                }
-                else {
-                    if (!smoothFaces) {
-                        if (!wireframe) {
-                            glColor3f(thisCol[0], thisCol[1], thisCol[2]);
-                        }
-                    }
-                    for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi.is_valid(); ++fvi) {
-                        OpenMesh::Vec3f thisCoord;
-                        thisCoord = mesh_list[current_mesh].point(*fvi);
-                        if (smoothFaces && !wireframe) {
-                            //OpenMesh::Vec4f thisCol;
-                            //thisCol = mesh_list[current_mesh].color(*fvi);
-                            OpenMesh::Vec3f thisCol;
-                            thisCol = mesh_list[current_mesh].normal(*fvi);
-                            glColor3f(thisCol[0], thisCol[1], thisCol[2]);
-                        }
-                        glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
+						glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
+					}
+				}
+				else if (showSpectralWeight) {
+
+					//bool showSpectralWeight = true;
+					//int whichEigToDraw = 5;
+					//Eigen::MatrixXd displacementValues;
+
+					for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi; ++fvi) {
+						OpenMesh::Vec3f thisCoord;
+						OpenMesh::Vec3f thisCol;
+						thisCoord = mesh_list[current_mesh].point(fvi.handle());
+
+						//OpenMesh::Vec4f thisCol;
+						//thisCol = mesh_list[current_mesh].color(fvi.handle());
+
+						thisCol[0] = displacementValues(fvi.handle().idx(), whichEigToDraw);
+						thisCol[1] = displacementValues(fvi.handle().idx(), whichEigToDraw);
+						thisCol[2] = displacementValues(fvi.handle().idx(), whichEigToDraw);
+
+						//thisCol = simpleHColourMap(thisH);
+						glColor3f(thisCol[0], thisCol[1], thisCol[2]);
+
+						//gauss curvature
+						//glColor3f(thisK, thisK, thisK);
+
+						glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
+					}
+				}
+				else {
+					if (!smoothFaces) {
+						if (!wireframe) {
+							glColor3f(thisCol[0], thisCol[1], thisCol[2]);
+						}
+					}
+					for (MyMesh::FaceVertexIter fvi = mesh_list[current_mesh].fv_iter(fa); fvi; ++fvi) {
+						OpenMesh::Vec3f thisCoord;
+						thisCoord = mesh_list[current_mesh].point(fvi.handle());
+						if (smoothFaces && !wireframe) {
+							//OpenMesh::Vec4f thisCol;
+							//thisCol = mesh_list[current_mesh].color(fvi.handle());
+							OpenMesh::Vec3f thisCol;
+							thisCol = mesh_list[current_mesh].normal(fvi.handle());
+							glColor3f(thisCol[0], thisCol[1], thisCol[2]);
+						}
+						glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
 
                     }
 
@@ -2779,66 +3168,43 @@ void display(GLFWwindow* window) {
 
 }
 
-
-void LoadNewMesh() {
-
-    std::string filename_bunny = "bun_zipper.obj";
-    std::string filename_022 = "smooth_test.obj";
-    current_mesh = 0;
-    mesh_list[current_mesh] = MyMesh();
-
-    if (!OpenMesh::IO::read_mesh(mesh_list[current_mesh], filename_022))
-    {
-        std::cerr << "read error\n";
-        exit(1);
-    }
-
-    findFaceNormals();
-    findVertNormalsFromFaces();
-    findGaussCurvature2();
-    colourByMesh();
-
-    std::cout << "Mesh changed\n";
-}
-
-
 int main(void)
 {
 
 
-    //_______READ MESH________________________
+	//_______READ MESH________________________	
 
-    std::string filename_00 = "dragon_vrip.ply";
-    std::string filename_011 = "icosphereHigh.obj";
-    std::string filename_01 = "icosphereHigh_my.obj";
-    std::string filename_02 = "icosphereHigh_long.obj";
-    std::string filename_022 = "smooth_test.obj";
+	std::string filename_03 = "dragon_vrip_res4.ply";
+	std::string filename_04 = "bun_zipper.ply";
+	std::string filename_05 = "bun_zipper_res4.ply";
+	std::string filename_06 = "smooth_test.obj";
+	std::string filename_07 = "dragon_lowres.ply";	// Dragon model - worked well with the smoothing
+	std::string filename_wolf = "Wolf2.obj";
+	std::string filename_deer = "Deer.obj";
+	std::string filename_cat = "cat.obj";
+	std::string filename_goat = "Goat.obj";
+	std::string filename_shark = "Shark.obj";
+	std::string filename_cube = "cube.obj";
+	std::string filename_ox = "ox.obj"; //low poly, blocky model I made in blender
+	std::string filename_ox1 = "ox_sd1.obj"; //subsurface division 1
+	std::string filename_ox2= "ox_sd2.obj"; //subsurface division 2
 
-    std::string filename_03 = "dragon_vrip_res4.ply";
-    std::string filename_04 = "bun_zipper.ply";
-    std::string filename_05 = "bun_zipper_res4.ply";
-    std::string filename_06 = "blender_monkey.ply";
-    std::string filename_07 = "dragon_lowres.ply";
+	std::vector<std::string> input_files;
 
+	input_files.push_back(filename_ox1);
 
+	std::cout << "loading meshes...";
 
+	unchangedMesh = MyMesh();
+	if (!OpenMesh::IO::read_mesh(unchangedMesh, input_files[0]))
+	{
+		std::cerr << "read error\n";
+		exit(1);
+	}
 
-    std::vector<std::string> input_files;
-
-    // for most of the tasks
-    //input_files.push_back(filename_022);
-    //input_files.push_back(filename_04);
-    //input_files.push_back(filename_033);
-    //input_files.push_back(filename_bunny);
-
-    input_files.push_back(filename_07);	//This mesh is quite good.
-    //input_files.push_back(filename_arnie);
-
-    std::cout << "loading meshes...";
-
-    for (int i = 0; i < input_files.size(); i++) {
-        current_mesh = i;
-        auto mesh = MyMesh();
+	for (int i = 0; i < input_files.size(); i++) {
+		current_mesh = i;
+		mesh_list.push_back(MyMesh());
 
         if (!OpenMesh::IO::read_mesh(mesh, input_files[i]))
         {
@@ -2846,100 +3212,93 @@ int main(void)
             std::cerr << "read error\n";
             exit(1);
         }
-        mesh_list.push_back(mesh);
 
     }
     //_______READ MESH________________________
 
 
-    std::cout << " meshes loaded\n\n";
+	std::cout << " meshes loaded\n\n";
 
-    buttonList.push_back(Button{ 5, 5, 100, 25, 0, 0, "Shading", "Shading", ToggleShading });
-    buttonList.push_back(Button{ 105, 5, 100, 25, 0, 0, "Show H", "Show H", ToggleShowMeanCurvature });
-    buttonList.push_back(Button{ 205, 5, 100, 25, 0, 0, "Wireframe", "Wireframe", ToggleWireframe });
-    buttonList.push_back(Button{ 305, 5, 100, 25, 0, 0, "Pointcloud", "Pointcloud", TogglePointCloud });
-    buttonList.push_back(Button{ 405, 5, 100, 25, 0, 0, "Show K", "Show K", ToggleShowGaussCurvature });
-    buttonList.push_back(Button{ 505, 5, 100, 25, 0, 0, "Show K1 K2", "Show K1 K2", ToggleShowPrincipleCurvature });
-
-    //buttonList.push_back(Button{ 5, 400, 100, 25, 0, 0, "Change Mesh", "Change Mesh", LoadNewMesh }); //dosent work
-
-    std::cout << "|-----------------------------|\n";
-    std::cout << "|                             |\n";
-    std::cout << "|Seb's Meshviewer and Smoother|\n";
-    std::cout << "|                             |\n";
-    std::cout << "|-----------------------------|\n";
-    std::cout << "|                             |\n";
-    std::cout << "|G: Add gaussian noise        |\n";
-    std::cout << "|I: 10 iterations of explicit |\n";
-    std::cout << "|     laplacian smoothing     |\n";
-    std::cout << "|L: 1 iteration of implicit   |\n";
-    std::cout << "|     laplacian smoothing     |\n";
-    std::cout << "|                             |\n";
-    std::cout << "|-----------------------------|\n";
-    current_mesh = 0;
+	buttonList.push_back(Button{ 5, 5, 100, 25, 0, 0, "Shading", "Shading", ToggleShading });
+	buttonList.push_back(Button{ 105, 5, 100, 25, 0, 0, "Show H", "Show H", ToggleShowMeanCurvature });
+	buttonList.push_back(Button{ 205, 5, 100, 25, 0, 0, "Wireframe", "Wireframe", ToggleWireframe });
+	buttonList.push_back(Button{ 305, 5, 100, 25, 0, 0, "Pointcloud", "Pointcloud", TogglePointCloud });
+	buttonList.push_back(Button{ 405, 5, 100, 25, 0, 0, "Show E weight", "Show E weight", ToggleShowSpectralWeighting });
+	buttonList.push_back(Button{ 505, 5, 100, 25, 0, 0, "Show K1 K2", "Show K1 K2", ToggleShowPrincipleCurvature });
 
 
-    mesh_list[current_mesh].add_property(mean_curvature, "mean_curvature");
-    mesh_list[current_mesh].property(mean_curvature).set_persistent(true);
+	std::cout << "|-----------------------------|\n";
+	std::cout << "|                             |\n";
+	std::cout << "|        Seb's Meshviewer     |\n";
+	std::cout << "|                             |\n";
+	std::cout << "|-----------------------------|\n";
 
-    mesh_list[current_mesh].add_property(gauss_curvature, "gauss_curvature");
-    mesh_list[current_mesh].property(gauss_curvature).set_persistent(true);
+	std::cout << "eigenReconstruction: press k\n";
+	current_mesh = 0;
 
-    mesh_list[current_mesh].add_property(k1, "k1");
-    mesh_list[current_mesh].property(k1).set_persistent(true);
+	// Add mesh curvatures as mesh properties
+	mesh_list[current_mesh].add_property(mean_curvature, "mean_curvature");
+	mesh_list[current_mesh].property(mean_curvature).set_persistent(true);
 
-    mesh_list[current_mesh].add_property(k2, "k2");
-    mesh_list[current_mesh].property(k2).set_persistent(true);
+	mesh_list[current_mesh].add_property(gauss_curvature, "gauss_curvature");
+	mesh_list[current_mesh].property(gauss_curvature).set_persistent(true);
 
+	mesh_list[current_mesh].add_property(k1, "k1");
+	mesh_list[current_mesh].property(k1).set_persistent(true);
 
-    findFaceNormals();
-    findVertNormalsFromFaces();
-    //uniformLaplaceDiscretization();
-    //discreteLaplaceBeltrami();
-    //findGaussCurvature();
-    findGaussCurvature2();
-    //colourByNormals();
-    colourByMesh();
-    globalScale += 5;
-    global_translation = getCentreOfMesh(); //get centre
-    global_translation *= -6.0f;
+	mesh_list[current_mesh].add_property(k2, "k2");
+	mesh_list[current_mesh].property(k2).set_persistent(true);
 
-    std::cout << "Press H for help.\n";
+	// Initialise various functions so I can view and draw the meshes
+	findFaceNormals();
+	findVertNormalsFromFaces();
+	findGaussCurvature2();
+	globalScale += 5;
+	global_translation = getCentreOfMesh(); //get centre
+	global_translation *= -6.0f;
 
-    glfwSetErrorCallback(error_callback);
-    GLFWwindow* window;
+	// The help function - remind user it exists
+	std::cout << "Press H for help.\n";
 
-    srand(1);
+	//set a seed for the random number gen - this was primarily so the meshes would be the same colour each time for ICP
+	srand(1);
 
-    if (!glfwInit())
-        return 1;
+	//Create the window:
+	glfwSetErrorCallback(error_callback);
+	GLFWwindow* window;
+
+	if (!glfwInit())
+		return 1;
 
     if (!glfwInit())
         exit(EXIT_FAILURE);
 
-    window = glfwCreateWindow(640, 480, "Seb's Coursework 2", NULL, NULL);
-    if (!window)
-    {
-        glfwTerminate();
-        exit(EXIT_FAILURE);
-    }
+	window = glfwCreateWindow(640, 480, "Seb's Coursework 3", NULL, NULL);
+	if (!window)
+	{
+		glfwTerminate();
+		exit(EXIT_FAILURE);
+	}
 
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
-    glfwSetKeyCallback(window, key_callback);
-    glfwSetMouseButtonCallback(window, mouse_callback);
-    glfwSetCursorPosCallback(window, mouse_moved_callback);
+	glfwSetKeyCallback(window, key_callback);
+	glfwSetMouseButtonCallback(window, mouse_callback);
+	glfwSetCursorPosCallback(window, mouse_moved_callback);
 
 
-    while (!glfwWindowShouldClose(window))
-    {
-        display(window);
-    }
+	while (!glfwWindowShouldClose(window))
+	{
+		display(window);
+	}
 
     glfwDestroyWindow(window);
 
     glfwTerminate();
     exit(EXIT_SUCCESS);
 }
+
+
+
 
