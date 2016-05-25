@@ -55,6 +55,8 @@ Eigen::Vector3d  virtual_camera_location(0.0f, -1.0f, 0.0f);
 //window dimensions
 int window_w = 640;
 int window_h = 480;
+int window_w_initial = 640;
+int window_h_initial = 480;
 
 //end lighting --------
 
@@ -158,7 +160,8 @@ Eigen::MatrixXd evecs;
 Eigen::MatrixXd evecs_coeffs;
 double eig_inc = 0.5;
 Eigen::MatrixXd displacementValues;
-int nEVecsToUse = 100;
+int nEVecsToUse = 25;
+int currentlyHeldEvects = 0;
 
 // ----------------------------------------------------------------------------
 
@@ -208,9 +211,28 @@ struct Button
 };
 
 typedef struct Button Button;
+
+struct TextBox
+{
+	int x_top_left;
+	int y_top_left;
+	int w;
+	int h;
+	char* label;
+};
+
+typedef struct TextBox TextBox;
+
+
 std::vector<Button> buttonList;
+std::vector<TextBox> textBoxList;
 
-
+//function declarations for the buttons
+void findEigenVectors(int nEVecsToUse);
+void remakeFromEVecs(int nEVecsToUse);
+void DoEigenDecomposition();
+void findFaceNormals();
+void findVertNormalsFromFaces();
 
 //	Button functions:
 
@@ -254,35 +276,152 @@ void ToggleShowGaussCurvature() {
 
 void ToggleShowSpectralWeighting() {
 	
-	if (showSpectralWeight) {
-		whichEigToDraw++;
-
-		std::cout << whichEigToDraw << "\n";
-
-		if (whichEigToDraw == nEVecsToUse) {
-			whichEigToDraw = 0;
-		}
-
-		std::cout << whichEigToDraw << "\n";
-		
+	if (currentlyHeldEvects != nEVecsToUse) {
+		std::cout << "Mismatch in number of eigen vectors: recalculating.\n";
+		DoEigenDecomposition();
 	}
 	else {
-		showSpectralWeight = true;
-	}
+		showSpectralWeight = !showSpectralWeight;
 
-	std::cout << "Showing weight of " << whichEigToDraw << "th eigen vector\n";
-		
-	showMeanCurvature = false;
-	showPrincipleCurvature = false;
-	showGaussCurvature = false;
+		showMeanCurvature = false;
+		showPrincipleCurvature = false;
+		showGaussCurvature = false;
+	}	
 }
-
-
 
 void ToggleWireframe() {
 	std::cout << "Render mode: toggled wireframe\n";
 	wireframe = !wireframe;
 }
+
+void IncreaseNEigenVectors() {
+	nEVecsToUse += 5;
+	std::cout << "N Eigen Vecs: " << nEVecsToUse << "\n";
+}
+
+void DecreaseNEigenVectors() {
+	nEVecsToUse -= 5;
+	if (nEVecsToUse <= 5) nEVecsToUse = 5;
+	std::cout << "N Eigen Vecs: " << nEVecsToUse << "\n";
+}
+
+void DoEigenDecomposition() {
+	std::cout << "Computing Eigen Decomposition, finding " << nEVecsToUse << " largest eigenvectors... ";
+	findEigenVectors(nEVecsToUse);
+	remakeFromEVecs(nEVecsToUse);
+	std::cout << "Done.\n";
+}
+
+void IncreaseSelectedEigenVector() {
+
+	if ((currentlyHeldEvects != nEVecsToUse) && (showSpectralWeight)){
+		std::cout << "Mismatch in number of eigen vectors: recalculating.\n";
+		DoEigenDecomposition();
+	}
+	else if (showSpectralWeight) {
+		whichEigToDraw++;
+		if (whichEigToDraw == nEVecsToUse) whichEigToDraw = 0;
+	}
+	
+}
+
+void DecreaseSelectedEigenVector() {
+
+	if ((currentlyHeldEvects != nEVecsToUse) && (showSpectralWeight)) {
+		std::cout << "Mismatch in number of eigen vectors: recalculating.\n";
+		DoEigenDecomposition();
+	}
+	else if (showSpectralWeight) {
+		whichEigToDraw--;
+		if (whichEigToDraw < 0) whichEigToDraw = nEVecsToUse - 1;
+	}
+
+}
+
+void IncreaseSpectralCoeff() {
+
+	if ((currentlyHeldEvects != nEVecsToUse) && (showSpectralWeight)) {
+		std::cout << "Mismatch in number of eigen vectors: recalculating.\n";
+		DoEigenDecomposition();
+	}
+	else if(showSpectralWeight){
+		evecs_coeffs(whichEigToDraw) += eig_inc;
+		remakeFromEVecs(nEVecsToUse);
+	}
+	
+}
+
+void DecreaseSpectralCoeff() {
+
+	if ((currentlyHeldEvects != nEVecsToUse) && (showSpectralWeight)) {
+		std::cout << "Mismatch in number of eigen vectors: recalculating.\n";
+		DoEigenDecomposition();
+	}
+	else if(showSpectralWeight){
+		evecs_coeffs(whichEigToDraw) -= eig_inc;
+		remakeFromEVecs(nEVecsToUse);
+	}
+	
+}
+
+void Reset() {
+	//copy from initial mesh to new mesh
+	//use mesh 0
+	current_mesh = 0;
+	//iterate over all vertices
+	MyMesh::VertexIter vlt, vBegin, vEnd;
+	vBegin = unchangedMesh.vertices_begin();
+	vEnd = unchangedMesh.vertices_end();
+	
+	int N = 0;
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		N++;
+	}
+
+	// make vectors (as a matrix) for old coords	
+	Eigen::MatrixXd XnMat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd YnMat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd ZnMat = Eigen::MatrixXd::Zero(N, 1);
+
+	//fill vector
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		OpenMesh::VertexHandle vh = vlt.handle();
+
+		int i = vh.idx();
+		int n_neighbours = 0;
+
+		XnMat(i, 0) = unchangedMesh.point(vh)[0];
+		YnMat(i, 0) = unchangedMesh.point(vh)[1];
+		ZnMat(i, 0) = unchangedMesh.point(vh)[2];
+
+	}
+
+	//save new coords - update
+
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+
+		OpenMesh::Vec3f newCoord;
+
+		newCoord[0] = XnMat(vlt.handle().idx(), 0);
+		newCoord[1] = YnMat(vlt.handle().idx(), 0);
+		newCoord[2] = ZnMat(vlt.handle().idx(), 0);
+
+		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+
+	}
+
+	// find new normals for colours
+	findFaceNormals();
+	findVertNormalsFromFaces();
+	//set all coeffs to one - this is done when calculating anyway
+	//evecs_coeffs = MatrixXd::Ones(nEVecsToUse, 1);
+	currentlyHeldEvects = 0;
+	
+}
+
+
+
+
 
 //returns 1 or zero if mouse is above button
 int ButtonClickTest(Button* b, int x, int y)
@@ -292,7 +431,7 @@ int ButtonClickTest(Button* b, int x, int y)
 	{
 		/*
 		*	If clicked within button area, then return true
-		*/
+		*/				
 		if (x > b->x_top_left      &&
 			x < b->x_top_left + b->w &&
 			y > b->y_top_left      &&
@@ -395,7 +534,12 @@ bool ButtonPassive(Button *b, int x, int y)
 }
 
 //	End of Button Functions
-//
+// ---------------Slider Object-----------------------------------------------
+//This will be similar to the button framework but instead the button can move
+
+//if mouse in box - highlight
+//is clicked in box - move box to new x based on mouse location
+//mouse released - place box and update value;
 
 // ----------------------------------------------------------------------------
 
@@ -1957,7 +2101,7 @@ void findEigenVectors(int nLargestEigs) {
 	}
 
 	evecs_coeffs = MatrixXd::Ones(nLargestEigs, 1);
-
+	currentlyHeldEvects = nLargestEigs;
 	
 
 }
@@ -2691,10 +2835,27 @@ void DrawButton(Button *b) {
 		fonty--;
 	}
 
+
+
 	glColor3f(1, 1, 1);
 	Font(GLUT_BITMAP_HELVETICA_10, b->label, fontx, fonty);
 	glTranslatef(0.0f, 0.0f, -0.20f);
 
+
+
+}
+
+void DrawTextBoxes(TextBox *tb) {
+	int fontx;
+	int fonty;
+	
+	
+	fontx = tb->x_top_left + (tb->w) / 2 - 20;
+	fonty = tb->y_top_left + (tb->h + 10) / 2;
+	glTranslatef(0.0f, 0.0f, 0.1f);
+	glColor3f(1, 1, 1);
+	Font(GLUT_BITMAP_HELVETICA_10, tb->label, fontx, fonty);
+	glTranslatef(0.0f, 0.0f, -0.10f);
 }
 
 void DrawGUI(void) {
@@ -2702,6 +2863,10 @@ void DrawGUI(void) {
 	//This function will be called within the display function and draw the GUI for my mesh viewer
 	for (int i = 0; i < buttonList.size(); i++) {
 		DrawButton(&buttonList[i]);
+	}
+
+	for (int i = 0; i < textBoxList.size(); i++) {
+		DrawTextBoxes(&textBoxList[i]);
 	}
 
 }
@@ -3174,8 +3339,11 @@ int main(void)
 	std::string filename_wolf = "Wolf2.obj";
 	std::string filename_deer = "Deer.obj";
 	std::string filename_cat = "cat.obj";
+	//std::string filename_head = "head.obj";	// Head from turbo squid - about 6k verts
+	std::string filename_head = "head2.obj";	// Head from turbo squid - about 0.7k verts
 	std::string filename_goat = "Goat.obj";
-	std::string filename_shark = "Shark.obj";
+	std::string filename_shark = "Shark.obj";	
+	std::string filename_fish = "fish.obj";
 	std::string filename_cube = "cube.obj";
 	std::string filename_ox = "ox.obj"; //low poly, blocky model I made in blender
 	std::string filename_ox1 = "ox_sd1.obj"; //subsurface division 1
@@ -3183,6 +3351,7 @@ int main(void)
 
 	std::vector<std::string> input_files;
 	
+	//input_files.push_back(filename_head);
 	input_files.push_back(filename_ox1);
 										
 	std::cout << "loading meshes...";
@@ -3215,7 +3384,28 @@ int main(void)
 	buttonList.push_back(Button{ 305, 5, 100, 25, 0, 0, "Pointcloud", "Pointcloud", TogglePointCloud });
 	buttonList.push_back(Button{ 405, 5, 100, 25, 0, 0, "Show E weight", "Show E weight", ToggleShowSpectralWeighting });
 	buttonList.push_back(Button{ 505, 5, 100, 25, 0, 0, "Show K1 K2", "Show K1 K2", ToggleShowPrincipleCurvature });
+
+	//Eigen decomposition buttons:
+
+	textBoxList.push_back(TextBox{5, 50, 50, 25, "Eigen Decomposition"});
+
+	buttonList.push_back(Button{ 25, 75, 50, 25, 0, 0, "+N Evec", "Less", IncreaseNEigenVectors });
+	buttonList.push_back(Button{ 25, 100, 50, 25, 0, 0, "Find", "Find", DoEigenDecomposition });
+	buttonList.push_back(Button{ 25, 125, 50, 25, 0, 0, "-N Evec", "More", DecreaseNEigenVectors });
+		
+	//Edit the spectral coeffs:
+	textBoxList.push_back(TextBox{ 5, 160, 50, 25, "Edit Spectral Coeffs" });
+
+	buttonList.push_back(Button{ 5, 185, 50, 25, 0, 0, "Next", "Next", IncreaseSelectedEigenVector }); //
+	buttonList.push_back(Button{ 55, 185, 50, 25, 0, 0, "Increase", "Increase", IncreaseSpectralCoeff }); //
+	buttonList.push_back(Button{ 5, 210, 100, 25, 0, 0, "Show", "Show", ToggleShowSpectralWeighting }); 
+	buttonList.push_back(Button{ 55, 235, 50, 25, 0, 0, "Decrease", "Decrease", DecreaseSpectralCoeff }); //
+	buttonList.push_back(Button{ 5, 235, 50, 25, 0, 0, "Prev", "Prev", DecreaseSelectedEigenVector }); //
 	
+	buttonList.push_back(Button{ 5, 290, 100, 25, 0, 0, "Reset", "Reset", Reset }); //
+	
+	
+
 
 	std::cout << "|-----------------------------|\n";
 	std::cout << "|                             |\n";
@@ -3281,6 +3471,11 @@ int main(void)
 	while (!glfwWindowShouldClose(window))
 	{
 		display(window);
+				
+		glfwGetWindowSize(window, &window_w, &window_h);
+		
+
+		
 	}
 
 	glfwDestroyWindow(window);
