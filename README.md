@@ -1,6 +1,7 @@
 # 3DProcessing
 A Description
 
+There is now a funcitoning UI allowing control over the eigen decomposition and reconstruction.
 
 Press 'H' when the window appears for a list of commands.
 
