@@ -97,7 +97,7 @@ bool showMeanCurvature = false;
 bool showGaussCurvature = false;
 bool showPrincipleCurvature = false;
 bool showSpectralWeight = false;
-int whichEigToDraw = 5;
+int whichEigToDraw = 1;
 TranformationMatrix tm = TranformationMatrix();
 MatrixXd globalRotationMatrix = tm.getRotationMatrix(0.0, 0.0, 0.0);
 
@@ -157,10 +157,12 @@ MyMesh unchangedMesh;
 // -------------------Matrix holding the eigen vectors-------------------------
 
 Eigen::MatrixXd evecs;
+Eigen::VectorXcd evals;
 Eigen::MatrixXd evecs_coeffs;
 double eig_inc = 0.5;
 Eigen::MatrixXd displacementValues;
 int nEVecsToUse = 25;
+int nEVecsToShow = 25;
 int currentlyHeldEvects = 0;
 
 // ----------------------------------------------------------------------------
@@ -230,6 +232,7 @@ std::vector<TextBox> textBoxList;
 //function declarations for the buttons
 void findEigenVectors(int nEVecsToUse);
 void remakeFromEVecs(int nEVecsToUse);
+void remakeFromModifiedEVecs(int nEVecsToUse);
 void DoEigenDecomposition();
 void findFaceNormals();
 void findVertNormalsFromFaces();
@@ -307,8 +310,28 @@ void DecreaseNEigenVectors() {
 
 void DoEigenDecomposition() {
 	std::cout << "Computing Eigen Decomposition, finding " << nEVecsToUse << " largest eigenvectors... ";
+	nEVecsToShow = nEVecsToUse;
 	findEigenVectors(nEVecsToUse);
-	remakeFromEVecs(nEVecsToUse);
+	remakeFromEVecs(nEVecsToShow);
+	std::cout << "Done.\n";
+}
+
+void IncreaseNShownEigenVectors() {
+	nEVecsToShow += 1;
+	if (nEVecsToShow > nEVecsToUse) nEVecsToShow = nEVecsToUse;
+
+	std::cout << "N Eigen Vecs: " << nEVecsToShow << "\n";
+}
+
+void DecreaseNShownEigenVectors() {
+	nEVecsToShow -= 1;
+	if (nEVecsToShow <= 1) nEVecsToShow = 1;
+	std::cout << "N Eigen Vecs: " << nEVecsToShow << "\n";
+}
+
+void DoEigenReconstruciton() {
+	std::cout << "Computing Eigen reconstruction, using " << nEVecsToShow << " largest eigenvectors... ";	
+	remakeFromModifiedEVecs(nEVecsToShow);
 	std::cout << "Done.\n";
 }
 
@@ -319,8 +342,12 @@ void IncreaseSelectedEigenVector() {
 		DoEigenDecomposition();
 	}
 	else if (showSpectralWeight) {
+		
 		whichEigToDraw++;
 		if (whichEigToDraw == nEVecsToUse) whichEigToDraw = 0;
+
+		std::cout << "Eig selected: " << whichEigToDraw << "\n";
+
 	}
 	
 }
@@ -334,6 +361,8 @@ void DecreaseSelectedEigenVector() {
 	else if (showSpectralWeight) {
 		whichEigToDraw--;
 		if (whichEigToDraw < 0) whichEigToDraw = nEVecsToUse - 1;
+
+		std::cout << "Eig selected: " << whichEigToDraw << "\n";
 	}
 
 }
@@ -2021,12 +2050,11 @@ void eigenReconstruction(double lambda, int nLargestEigs) {
 
 }
 
-void findEigenVectors(int nLargestEigs) {
-
-	std::cout << "Finding Eigen Vectors... ";
-
+Eigen::SparseMatrix<double> makeUniformLaplace() {
+	
+	current_mesh = 0;
 	double lambda = -1.0;
-		
+
 	//use mesh 0
 	current_mesh = 0;
 	//iterate over all vertices
@@ -2038,18 +2066,14 @@ void findEigenVectors(int nLargestEigs) {
 		N++;
 	}
 
-	//construct A matrix - discrete laplacian
-	//A = I - lambda L
-
 	Eigen::SparseMatrix<double> L = Eigen::SparseMatrix<double>(N, N);
 
-	//fill matrix and vector
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 		OpenMesh::VertexHandle vh = vlt.handle();
 
 		int i = vh.idx();
 		int n_neighbours = 0;
-		
+
 		//now iterate over adjacent vertices
 		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
 			OpenMesh::VertexHandle vh2 = vvi.handle();
@@ -2068,10 +2092,135 @@ void findEigenVectors(int nLargestEigs) {
 
 	}
 
-	// now have the laplacian matrix
+	return L;
+
+}
+
+Eigen::SparseMatrix<double> makeLaplaceBeltrami() {
+
+	current_mesh = 0;
+	double lambda = -1.0;
+
+	//iterate over all vertices
+
+	MyMesh::VertexIter vlt, vBegin, vEnd;
+	vBegin = mesh_list[current_mesh].vertices_begin();
+	vEnd = mesh_list[current_mesh].vertices_end();
+	int N = 0;
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		N++;
+	}
+
+	Eigen::SparseMatrix<double> L = Eigen::SparseMatrix<double>(N, N);
+
+	//iterate over all vertices
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+
+		OpenMesh::VertexHandle vh = vlt.handle();
+		OpenMesh::Vec3f xi = mesh_list[current_mesh].point(vh);
+
+		std::vector<OpenMesh::Vec3f> xj;
+		std::vector<int> xj_index;
+		std::vector<double> xj_cotangent;
+				
+		float area = 0.0f;
+
+		//now iterate over adjacent vertices
+		for (MyMesh::ConstVertexVertexIter vvi = mesh_list[current_mesh].vv_iter(vh); vvi; ++vvi) {
+			xj.push_back(mesh_list[current_mesh].point(vvi.handle()));
+			xj_index.push_back(vvi.handle().idx());
+		}
+
+		//now find laplaceS
+		for (int i = 0; i < xj.size(); i++) {
+
+			//I need angles which look at the edge xi -> xj
+			OpenMesh::Vec3f xjm1;
+			OpenMesh::Vec3f xjp1;
+			if (i == 0) {
+				xjm1 = xj[xj.size() - 1];
+			}
+			else {
+				xjm1 = xj[i - 1];
+			}
+
+			if (i == xj.size() - 1) {
+				xjp1 = xj[0];
+			}
+			else {
+				xjp1 = xj[i + 1];
+			}
+
+			//alpha angle is xj xj-1 xi
+			OpenMesh::Vec3f vecAB = xi - xjm1;
+			OpenMesh::Vec3f vecAC = xj[i] - xjm1;
+			float alpha = acos(OpenMesh::dot(vecAB, vecAC) / (vecAB.norm() * vecAC.norm()));
+			//beta angle is xj xj+1 xi
+			vecAB = xi - xjp1;
+			vecAC = xj[i] - xjp1;
+			float beta = acos(OpenMesh::dot(vecAB, vecAC) / (vecAB.norm() * vecAC.norm()));
+
+			//cot is cos/sin
+			//w = cot alpha + cot beta
+			float weight = (cos(alpha) / sin(alpha)) + (cos(beta) / sin(beta));
+
+			xj_cotangent.push_back(weight);
+
+			area += vecAB.norm()*vecAC.norm() * sin(beta) / 6.0f;
+			
+		}
+
+		//now I should have the cotangent, which vertex it belongs to, and the area so can compute the laplace beltrami matrix
+		
+		double area_normalisation_term = 1.0 / (area*2.0);
+
+		double all_cotangent = 0.0;
+
+		//fill in off diagonals
+		for (int i = 0; i < xj_index.size(); i++) {
+			L.insert(vlt.handle().idx(), xj_index[i]) = area_normalisation_term * xj_cotangent[i];
+			all_cotangent += xj_cotangent[i];
+		}
+		
+		L.insert(vlt.handle().idx(), vlt.handle().idx()) = all_cotangent * area_normalisation_term * -1.0;
+
+		//end of global vertex iterator
+	}
+
+
+	return L;
+
+
+}
+
+void findEigenVectors(int nLargestEigs) {
+
+	std::cout << "Finding Eigen Vectors... ";
+
+	//use mesh 0
+	current_mesh = 0;
+
+	
+	double lambda = -1.0;
+	//iterate over all vertices
+	MyMesh::VertexIter vlt, vBegin, vEnd;
+	vBegin = mesh_list[current_mesh].vertices_begin();
+	vEnd = mesh_list[current_mesh].vertices_end();
+	int N = 0;
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		N++;
+	}
+
+	//construct A matrix - discrete laplacian
+	//A = I - lambda L	
+	Eigen::SparseMatrix<double> L = Eigen::SparseMatrix<double>(N, N);	
+	L = makeUniformLaplace();
+	//L = makeLaplaceBeltrami();
+	// now have the laplacian matrix	
 
 	//take an eigen decomposition of it:
 	Spectra::SparseGenMatProd<double> op(L);
+	
 
 	// ncv affects rate of convergance - higher means faster convergance but also more memory usage
 	// ncv must be greater than n_largest Eigs + 2 and less than n which is size of the matrix
@@ -2080,23 +2229,24 @@ void findEigenVectors(int nLargestEigs) {
 
 	// Want the dominant eigen vectors which are associated with the smallest magnitude of eiven values
 	Spectra::GenEigsSolver< double, Spectra::SMALLEST_MAGN, Spectra::SparseGenMatProd<double> > eigs(&op, nLargestEigs, ncv);
+	
 
 	// Initialize and compute	
 
 	eigs.init();
 	int nconv = eigs.compute();
 
-	// Retrieve results
-	Eigen::VectorXcd evalues;
+	// Retrieve results	
 	//Eigen::MatrixXd evecs; - now initialised as a global variable
 	if (eigs.info() == Spectra::SUCCESSFUL) {
-		evalues = eigs.eigenvalues();
+		evals = eigs.eigenvalues();
 		evecs = eigs.eigenvectors().real();
 		std::cout << "eval and evec assigned\n";
 	}
 	else {
 		std::cout << "Fewer eigen vectors than requested were returned, likely due to ncv being too small.\n";
 		std::cout << "will continue with retuned eigen vecs\n";
+		evals = eigs.eigenvalues();
 		evecs = eigs.eigenvectors().real();
 	}
 
@@ -2160,6 +2310,14 @@ void remakeFromEVecs(int nLargestEigs) {
 
 	for (int i = 0; i < nLargestEigs; i++) {	
 
+	//int n_start = currentlyHeldEvects - nLargestEigs;
+
+	//if (n_start < 0) n_start = 0;
+
+	//for (int i = n_start; i < currentlyHeldEvects; i++) {
+
+		//std::cout << i << "\n";
+
 		MatrixXd thisEigenVec = Eigen::MatrixXd::Zero(N, 1);
 		
 		for (int j = 0; j < N; j++) {
@@ -2173,6 +2331,8 @@ void remakeFromEVecs(int nLargestEigs) {
 		Xn1Mat += (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;		
 		Yn1Mat += (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;		
 		Zn1Mat += (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+
+		//std::cout << thisEigenVec.transpose() * XnMat << "\n";
 
 		Xn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
 		Yn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
@@ -2203,12 +2363,105 @@ void remakeFromEVecs(int nLargestEigs) {
 			displacementValues(k, i) *= max_disp;
 			
 		}
-
-
-		
-
 	}
 			
+	//save new coords - update1
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+
+		OpenMesh::Vec3f newCoord;
+
+		newCoord[0] = Xn1MatOutput(vlt.handle().idx(), 0);
+		newCoord[1] = Yn1MatOutput(vlt.handle().idx(), 0);
+		newCoord[2] = Zn1MatOutput(vlt.handle().idx(), 0);
+
+		mesh_list[current_mesh].set_point(vlt.handle(), newCoord);
+
+	}
+
+	// find new normals for colours
+	findFaceNormals();
+	findVertNormalsFromFaces();
+
+}
+
+void remakeFromModifiedEVecs(int nLargestEigs) {
+
+
+	//use mesh 0
+	current_mesh = 0;
+	//iterate over all vertices
+	MyMesh::VertexIter vlt, vBegin, vEnd;
+	vBegin = unchangedMesh.vertices_begin();
+	vEnd = unchangedMesh.vertices_end();
+
+	int N = 0;
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		N++;
+	}
+
+	// make vectors (as a matrix) for old coords	
+	Eigen::MatrixXd XnMat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd YnMat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd ZnMat = Eigen::MatrixXd::Zero(N, 1);
+
+	//fill vector
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		OpenMesh::VertexHandle vh = vlt.handle();
+
+		int i = vh.idx();
+		int n_neighbours = 0;
+
+		XnMat(i, 0) = unchangedMesh.point(vh)[0];
+		YnMat(i, 0) = unchangedMesh.point(vh)[1];
+		ZnMat(i, 0) = unchangedMesh.point(vh)[2];
+
+	}
+
+	// new points
+	Eigen::MatrixXd Xn1Mat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Yn1Mat = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Zn1Mat = Eigen::MatrixXd::Zero(N, 1);
+
+	Eigen::MatrixXd Xn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Yn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
+	Eigen::MatrixXd Zn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
+
+	if (nLargestEigs > evecs.cols()) {
+		nLargestEigs = evecs.cols();
+		std::cout << "not enough e vecs\n";
+	}
+
+	int n_start = currentlyHeldEvects - nLargestEigs;
+
+	if (n_start < 0) n_start = 0;
+
+	for (int i = n_start; i < currentlyHeldEvects; i++) {
+			
+
+		MatrixXd thisEigenVec = Eigen::MatrixXd::Zero(N, 1);
+
+		for (int j = 0; j < N; j++) {
+			thisEigenVec(j, 0) = evecs(j, i);
+		}
+
+
+
+		// sum of E^T X E	-	where E is the eigen vector, and X is the original point coords
+		// The (0, 0) refers to E^T X being a 1x1 matrix which in turn scales the eigen vecs
+		Xn1Mat += (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
+		Yn1Mat += (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
+		Zn1Mat += (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+
+		//std::cout << thisEigenVec.transpose() * XnMat << "\n";
+
+		Xn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
+		Yn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
+		Zn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+		
+	}
+
+	std::cout << "here!!\n";
+
 	//save new coords - update
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
@@ -2228,13 +2481,12 @@ void remakeFromEVecs(int nLargestEigs) {
 
 }
 
+
 void findGaussCurvature() {
 	current_mesh = 0;
 
 	int wrongCurves = 0;
 	int n_curves = 0;
-
-
 
 	MyMesh::VertexIter vlt, vBegin, vEnd;
 	vBegin = mesh_list[current_mesh].vertices_begin();
@@ -2391,8 +2643,6 @@ void findGaussCurvature() {
 
 	}
 
-
-
 	std::cout << "max k : " << max_gauss_curvture << "\n";
 	std::cout << "min k : " << min_gauss_curvture << "\n";
 	std::cout << "max k1: " << max_k1_curvture << "\n";
@@ -2545,18 +2795,21 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 		}
 		//in help
 		if (key == GLFW_KEY_K && action == GLFW_PRESS) {
-			//double lambda = -1.0;			
-			int n_largest_eigs = 50;
-			nEVecsToUse += 3;
-			//eigenReconstruction(lambda, n_largest_eigs);
 			
-			if (nEVecsToUse == 1) {
-				//findEigenVectors(n_largest_eigs);
+			std::cout << "n rows: ";
+			std::cout << evals.rows() << "\n";
+			std::cout << "\n";
+			std::cout << "\n";
+
+			for (int i = 0; i < evals.rows(); i++) {
+
+				std::cout << evals(i, 0).real() << "\n";
+			
 			}
-			else {								
-				findEigenVectors(nEVecsToUse);				
-				remakeFromEVecs(nEVecsToUse);
-			}
+
+			std::cout << "\n";
+			std::cout << "\n";
+
 		}
 
 		if (key == GLFW_KEY_KP_ADD && action == GLFW_PRESS) {
@@ -3088,7 +3341,10 @@ void display(GLFWwindow* window) {
 	glfwGetFramebufferSize(window, &width, &height);
 	ratio = width / (float)height;
 
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+
 	glViewport(0, 0, width, height);
+
 	glEnable(GL_DEPTH_TEST);
 	glDepthMask(GL_TRUE);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -3271,7 +3527,7 @@ void display(GLFWwindow* window) {
 						thisCol[1] = displacementValues(fvi.handle().idx(), whichEigToDraw);
 						thisCol[2] = displacementValues(fvi.handle().idx(), whichEigToDraw);
 
-						//thisCol = simpleHColourMap(thisH);
+						thisCol = simpleColourMap(displacementValues(fvi.handle().idx(), whichEigToDraw), 1.0f, 0.0f);
 						glColor3f(thisCol[0], thisCol[1], thisCol[2]);
 
 						//gauss curvature
@@ -3325,6 +3581,87 @@ void display(GLFWwindow* window) {
 
 }
 
+void display_graphs(GLFWwindow* window) {
+	float ratio;
+	int width, height;
+
+
+	std::default_random_engine generator;
+	std::normal_distribution<double> distribution(0.5, 0.5);
+
+	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+
+	glfwGetFramebufferSize(window, &width, &height);
+	ratio = width / (float)height;
+
+	glViewport(0, 0, width, height);	
+	glClear(GL_COLOR_BUFFER_BIT);
+	
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	glOrtho(-ratio, ratio, -1.f, 1.f, -1.f, 1.f);
+	glMatrixMode(GL_MODELVIEW);
+
+	glLoadIdentity();
+
+	// I need to plot:
+
+	/*
+		axes - ticks? (probably not)
+			 - numbers
+
+		indicator of selection
+
+	
+	*/
+
+	// x range +/-2		y range = +/-0.8
+
+	//this draws the points of my graph
+	glColor3f(1.0f, 1.0f, 1.0f);
+	glPointSize(6.0f);
+	glBegin(GL_POINTS);
+	
+	glVertex3f(-2.0f, -0.8f, 0.0f);
+	glVertex3f(-2.0f, 0.8f, 0.0f);
+	glVertex3f(2.0f, 0.0f, 0.0f);
+	glVertex3f(-2.0f, 0.0f, 0.0f);
+
+	glEnd();
+	glLineWidth(1.0);
+	glBegin(GL_LINES);
+
+	glVertex3f(-2.0f, -0.8f, 0.0f);
+	glVertex3f(-2.0f, 0.8f, 0.0f);
+	glVertex3f(2.0f, 0.0f, 0.0f);
+	glVertex3f(-2.0f, 0.0f, 0.0f);
+
+	glEnd();
+
+	//now plot the eigenfactors
+	glBegin(GL_LINES);
+	glColor3f(0.2f, 0.2f, 1.0f);
+
+	//scale = N/L
+	glColor3f(0.2f, 0.2f, 1.0f);
+	float unit_length = evals.rows()/4.0f;
+
+	for (int i = 1; i < evals.rows(); i++) {
+		float x_val = unit_length*float(i) - 2.0f;
+		float y_val = float(evals(i).real());
+		
+		glVertex3f(x_val, y_val, 0.0f);
+
+		x_val = unit_length*float((i-1)) - 2.0f;
+		y_val = float(evals(i-1).real());
+
+		glVertex3f(x_val, y_val, 0.0f);
+
+	}
+
+	glfwSwapBuffers(window);
+}
+
 int main(void)
 {
 
@@ -3340,6 +3677,10 @@ int main(void)
 	std::string filename_deer = "Deer.obj";
 	std::string filename_cat = "cat.obj";
 	//std::string filename_head = "head.obj";	// Head from turbo squid - about 6k verts
+	std::string filename_dragon = "dragon_1500.obj";	// Stanford dragon model - low poly - about 1.5k verts
+	std::string filename_dragon4k = "dragon_4000.obj";	// Stanford dragon model - low poly - about 4.0k verts
+	std::string filename_armadillo4k = "Armadillo_4000.obj";	// Stanford armadillo model - low poly - about 4.0k verts	
+	std::string filename_armadillo1k = "Armadillo_1000.obj";	// Stanford armadillo model - low poly - about 1.0k verts	
 	std::string filename_head = "head2.obj";	// Head from turbo squid - about 0.7k verts
 	std::string filename_goat = "Goat.obj";
 	std::string filename_shark = "Shark.obj";	
@@ -3352,7 +3693,7 @@ int main(void)
 	std::vector<std::string> input_files;
 	
 	//input_files.push_back(filename_head);
-	input_files.push_back(filename_ox1);
+	input_files.push_back(filename_armadillo1k);
 										
 	std::cout << "loading meshes...";
 
@@ -3393,19 +3734,28 @@ int main(void)
 	buttonList.push_back(Button{ 25, 100, 50, 25, 0, 0, "Find", "Find", DoEigenDecomposition });
 	buttonList.push_back(Button{ 25, 125, 50, 25, 0, 0, "-N Evec", "More", DecreaseNEigenVectors });
 		
+	//Eigen reconstruction
+	textBoxList.push_back(TextBox{ 5, 160, 50, 25, "Eigen Reconstruction" });
+
+	buttonList.push_back(Button{ 25, 185, 50, 25, 0, 0, "+N Evec", "Less", IncreaseNShownEigenVectors });
+	buttonList.push_back(Button{ 25, 210, 50, 25, 0, 0, "Find", "Find", DoEigenReconstruciton});
+	buttonList.push_back(Button{ 25, 235, 50, 25, 0, 0, "-N Evec", "More", DecreaseNShownEigenVectors });
+
+	
 	//Edit the spectral coeffs:
-	textBoxList.push_back(TextBox{ 5, 160, 50, 25, "Edit Spectral Coeffs" });
+	textBoxList.push_back(TextBox{ 5, 270, 50, 25, "Edit Spectral Coeffs" });
 
-	buttonList.push_back(Button{ 5, 185, 50, 25, 0, 0, "Next", "Next", IncreaseSelectedEigenVector }); //
-	buttonList.push_back(Button{ 55, 185, 50, 25, 0, 0, "Increase", "Increase", IncreaseSpectralCoeff }); //
-	buttonList.push_back(Button{ 5, 210, 100, 25, 0, 0, "Show", "Show", ToggleShowSpectralWeighting }); 
-	buttonList.push_back(Button{ 55, 235, 50, 25, 0, 0, "Decrease", "Decrease", DecreaseSpectralCoeff }); //
-	buttonList.push_back(Button{ 5, 235, 50, 25, 0, 0, "Prev", "Prev", DecreaseSelectedEigenVector }); //
-	
-	buttonList.push_back(Button{ 5, 290, 100, 25, 0, 0, "Reset", "Reset", Reset }); //
+	buttonList.push_back(Button{ 5, 295, 50, 25, 0, 0, "Next", "Next", IncreaseSelectedEigenVector }); //
+	buttonList.push_back(Button{ 55, 295, 50, 25, 0, 0, "Increase", "Increase", IncreaseSpectralCoeff }); //
+	buttonList.push_back(Button{ 5, 320, 100, 25, 0, 0, "Show", "Show", ToggleShowSpectralWeighting }); //
+	buttonList.push_back(Button{ 5, 345, 50, 25, 0, 0, "Prev", "Prev", DecreaseSelectedEigenVector }); //
+	buttonList.push_back(Button{ 55, 345, 50, 25, 0, 0, "Decrease", "Decrease", DecreaseSpectralCoeff }); //
 	
 	
-
+	buttonList.push_back(Button{ 5, 375, 100, 25, 0, 0, "Reset", "Reset", Reset }); //
+	
+	
+	
 
 	std::cout << "|-----------------------------|\n";
 	std::cout << "|                             |\n";
@@ -3446,6 +3796,7 @@ int main(void)
 	//Create the window:
 	glfwSetErrorCallback(error_callback);
 	GLFWwindow* window;
+	
 
 	if (!glfwInit())
 		return 1;
@@ -3454,6 +3805,7 @@ int main(void)
 		exit(EXIT_FAILURE);
 
 	window = glfwCreateWindow(640, 480, "Seb's Coursework 3", NULL, NULL);
+
 	if (!window)
 	{
 		glfwTerminate();
@@ -3474,12 +3826,10 @@ int main(void)
 				
 		glfwGetWindowSize(window, &window_w, &window_h);
 		
-
-		
 	}
 
 	glfwDestroyWindow(window);
-
+	
 	glfwTerminate();
 	exit(EXIT_SUCCESS);
 }
