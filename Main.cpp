@@ -159,7 +159,10 @@ MyMesh unchangedMesh;
 Eigen::MatrixXd evecs;
 Eigen::VectorXcd evals;
 Eigen::MatrixXd evecs_coeffs;
-double eig_inc = 0.5;
+double min_coeff = 0.0;
+double max_coeff = 0.0;
+Eigen::MatrixXd evecs_coeffs_temp;
+double eig_inc = 0.1;
 Eigen::MatrixXd displacementValues;
 int nEVecsToUse = 25;
 int nEVecsToShow = 25;
@@ -374,8 +377,12 @@ void IncreaseSpectralCoeff() {
 		DoEigenDecomposition();
 	}
 	else if(showSpectralWeight){
-		evecs_coeffs(whichEigToDraw) += eig_inc;
-		remakeFromEVecs(nEVecsToUse);
+		//evecs_coeffs(whichEigToDraw) += eig_inc;
+		evecs_coeffs_temp(whichEigToDraw, 0) += eig_inc*evecs_coeffs_temp(whichEigToDraw, 0);
+		evecs_coeffs_temp(whichEigToDraw, 1) += eig_inc*evecs_coeffs_temp(whichEigToDraw, 1);
+		evecs_coeffs_temp(whichEigToDraw, 2) += eig_inc*evecs_coeffs_temp(whichEigToDraw, 2);
+		//remakeFromEVecs(nEVecsToUse);
+		remakeFromModifiedEVecs(nEVecsToShow);
 	}
 	
 }
@@ -387,8 +394,12 @@ void DecreaseSpectralCoeff() {
 		DoEigenDecomposition();
 	}
 	else if(showSpectralWeight){
-		evecs_coeffs(whichEigToDraw) -= eig_inc;
-		remakeFromEVecs(nEVecsToUse);
+		//evecs_coeffs(whichEigToDraw) += eig_inc;
+		evecs_coeffs_temp(whichEigToDraw, 0) -= eig_inc*evecs_coeffs_temp(whichEigToDraw, 0);
+		evecs_coeffs_temp(whichEigToDraw, 1) -= eig_inc*evecs_coeffs_temp(whichEigToDraw, 1);
+		evecs_coeffs_temp(whichEigToDraw, 2) -= eig_inc*evecs_coeffs_temp(whichEigToDraw, 2);
+		//remakeFromEVecs(nEVecsToUse);
+		remakeFromModifiedEVecs(nEVecsToShow);
 	}
 	
 }
@@ -2251,6 +2262,7 @@ void findEigenVectors(int nLargestEigs) {
 	}
 
 	evecs_coeffs = MatrixXd::Ones(nLargestEigs, 1);
+	evecs_coeffs_temp = MatrixXd::Ones(nLargestEigs, 3);
 	currentlyHeldEvects = nLargestEigs;
 	
 
@@ -2338,6 +2350,15 @@ void remakeFromEVecs(int nLargestEigs) {
 		Yn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
 		Zn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
 
+		evecs_coeffs_temp(i, 0) = evecs_coeffs(i, 0) * (thisEigenVec.transpose() * XnMat)(0, 0);
+		evecs_coeffs_temp(i, 1) = evecs_coeffs(i, 0) * (thisEigenVec.transpose() * YnMat)(0, 0);
+		evecs_coeffs_temp(i, 2) = evecs_coeffs(i, 0) * (thisEigenVec.transpose() * ZnMat)(0, 0);
+
+		for (int l = 0; l < 3; l++) {
+			if (min_coeff > evecs_coeffs_temp(i, l)) min_coeff = evecs_coeffs_temp(i, l);
+			if (max_coeff < evecs_coeffs_temp(i, l)) max_coeff = evecs_coeffs_temp(i, l);
+		}
+
 		//thisEigenVec *= evecs_coeffs(i, 0);
 		thisEigenVec *= 2.0;
 
@@ -2378,9 +2399,13 @@ void remakeFromEVecs(int nLargestEigs) {
 
 	}
 
+	std::cout << "min co: " << min_coeff << "\nmax co: " << max_coeff << "\n";
+
 	// find new normals for colours
 	findFaceNormals();
 	findVertNormalsFromFaces();
+
+
 
 }
 
@@ -2448,15 +2473,21 @@ void remakeFromModifiedEVecs(int nLargestEigs) {
 
 		// sum of E^T X E	-	where E is the eigen vector, and X is the original point coords
 		// The (0, 0) refers to E^T X being a 1x1 matrix which in turn scales the eigen vecs
-		Xn1Mat += (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
-		Yn1Mat += (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
-		Zn1Mat += (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+		//Xn1Mat += (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
+		//Yn1Mat += (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
+		//Zn1Mat += (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
 
 		//std::cout << thisEigenVec.transpose() * XnMat << "\n";
 
-		Xn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
-		Yn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
-		Zn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+		
+
+		//Xn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
+		//Yn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
+		//Zn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
+
+		Xn1MatOutput += evecs_coeffs_temp(i, 0) * thisEigenVec;
+		Yn1MatOutput += evecs_coeffs_temp(i, 1) * thisEigenVec;
+		Zn1MatOutput += evecs_coeffs_temp(i, 2) * thisEigenVec;
 		
 	}
 
@@ -3334,6 +3365,115 @@ OpenMesh::Vec3f principleKColourmap(double k1, double k2) {
 
 }
 
+void display_graphs(int width, int height) {
+
+	glDisable(GL_DEPTH_TEST);
+	//can I plot a graph here?
+	//glEnable(GL_DEPTH_TEST);
+	//glDepthMask(GL_TRUE);
+
+	glViewport(0, 0, width, int(height*0.2));
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	glOrtho(0, window_w, window_h, 0, -1, 1);
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+
+
+	float unit_length = evals.rows() / 620.0f;
+
+	float x_origin = 20.0;
+	float y_origin = height / 2.0;
+
+	float x_end = 620.0;
+	float y_max = height - 40.0;
+	float y_min = 40.0;
+
+	float x_range = x_end - x_origin;
+	float y_range = y_max - y_min;
+
+	float x_inc = float(x_range) / float(evals.rows());
+
+	//draw area such showing region selected
+	glBegin(GL_TRIANGLE_FAN);
+	glColor3f(0.4f, 0.4f, 0.4f);
+	glTranslatef(0.0f, 0.0f, +0.1f);
+	float x_used_verts = ((nEVecsToUse - nEVecsToShow) * x_range / nEVecsToUse);
+
+	glVertex3f(x_origin, y_max, 0.0f);
+	glVertex3f(x_used_verts + x_origin, y_max, 0.0f);
+	glVertex3f(x_used_verts + x_origin, y_min, 0.0f);
+	glVertex3f(x_origin, y_min, 0.0f);
+	glTranslatef(0.0f, 0.0f, -0.1f);
+	glEnd();
+	// End of drawing region
+
+
+	glColor3f(0.9f, 0.9f, 0.9f);
+	glLineWidth(1.0);
+	glBegin(GL_LINES);
+
+	glVertex3f(x_origin, y_origin, 0.0f);
+	glVertex3f(x_end, y_origin, 0.0f);
+
+	glVertex3f(x_origin, y_max, 0.0f);
+	glVertex3f(x_origin, y_min, 0.0f);
+
+
+
+	y_min *= 5.0;
+	//	evecs_coeffs_temp
+	for (int d = 0; d < 3; d++) {
+
+		if (d == 0)glColor3f(1.0f, 0.0f, 0.0f);
+		if (d == 1)glColor3f(0.0f, 1.0f, 0.0f);
+		if (d == 2)glColor3f(0.0f, 0.0f, 1.0f);
+
+		for (int i = 1; i < evals.rows() - 1; i++) {
+
+			//std::cout << evals[i] << "\n";
+
+			float this_x = x_origin + (i * x_inc);
+			float this_y = y_origin + evecs_coeffs_temp(i, d) * y_min; //might be minus if y points down
+
+			glVertex3f(this_x, this_y, 0.0f);
+
+			this_x = x_origin + ((i - 1) * x_inc);
+			this_y = y_origin + evecs_coeffs_temp(i - 1, d) * y_min; //might be minus if y points down
+
+			glVertex3f(this_x, this_y, 0.0f);
+
+			//		std::cout << this_x << "\n";
+		}
+	}
+
+	//need a marker to indicate which eigen is selected
+	glColor3f(1.0f, 1.0f, 1.0f);
+	float current_eig_marker_x = x_origin + (whichEigToDraw * x_inc);
+
+	glVertex3f(current_eig_marker_x, y_max - 80, 0.0f);
+	glVertex3f(current_eig_marker_x, y_min*0.2 + 80, 0.0f);
+
+
+	glEnd();
+
+	//write some numbers
+	int fontx;
+	int fonty;
+
+	std::string temp_str = std::to_string(whichEigToDraw);
+	char* char_type = new char[temp_str.length()];
+	strcpy(char_type, temp_str.c_str());
+
+	fontx = current_eig_marker_x - 10;
+	fonty = y_origin;
+	glColor3f(1, 1, 0);
+	Font(GLUT_BITMAP_HELVETICA_10, char_type, fontx, fonty - 150);
+	//End of selection marker
+
+}
+
+
 void display(GLFWwindow* window) {
 	float ratio;
 	int width, height;
@@ -3344,6 +3484,7 @@ void display(GLFWwindow* window) {
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
 	glViewport(0, 0, width, height);
+	//glViewport(0, int(height*0.2), width, int(height*0.8));
 
 	glEnable(GL_DEPTH_TEST);
 	glDepthMask(GL_TRUE);
@@ -3576,91 +3717,16 @@ void display(GLFWwindow* window) {
 
 	DrawGUI();
 
+	display_graphs(width, height); // width and height are the dimensions of the full window
+	
+	
+
+	//glFlush();
 	glfwSwapBuffers(window);
 	glfwPollEvents();
 
 }
 
-void display_graphs(GLFWwindow* window) {
-	float ratio;
-	int width, height;
-
-
-	std::default_random_engine generator;
-	std::normal_distribution<double> distribution(0.5, 0.5);
-
-	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-
-	glfwGetFramebufferSize(window, &width, &height);
-	ratio = width / (float)height;
-
-	glViewport(0, 0, width, height);	
-	glClear(GL_COLOR_BUFFER_BIT);
-	
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	glOrtho(-ratio, ratio, -1.f, 1.f, -1.f, 1.f);
-	glMatrixMode(GL_MODELVIEW);
-
-	glLoadIdentity();
-
-	// I need to plot:
-
-	/*
-		axes - ticks? (probably not)
-			 - numbers
-
-		indicator of selection
-
-	
-	*/
-
-	// x range +/-2		y range = +/-0.8
-
-	//this draws the points of my graph
-	glColor3f(1.0f, 1.0f, 1.0f);
-	glPointSize(6.0f);
-	glBegin(GL_POINTS);
-	
-	glVertex3f(-2.0f, -0.8f, 0.0f);
-	glVertex3f(-2.0f, 0.8f, 0.0f);
-	glVertex3f(2.0f, 0.0f, 0.0f);
-	glVertex3f(-2.0f, 0.0f, 0.0f);
-
-	glEnd();
-	glLineWidth(1.0);
-	glBegin(GL_LINES);
-
-	glVertex3f(-2.0f, -0.8f, 0.0f);
-	glVertex3f(-2.0f, 0.8f, 0.0f);
-	glVertex3f(2.0f, 0.0f, 0.0f);
-	glVertex3f(-2.0f, 0.0f, 0.0f);
-
-	glEnd();
-
-	//now plot the eigenfactors
-	glBegin(GL_LINES);
-	glColor3f(0.2f, 0.2f, 1.0f);
-
-	//scale = N/L
-	glColor3f(0.2f, 0.2f, 1.0f);
-	float unit_length = evals.rows()/4.0f;
-
-	for (int i = 1; i < evals.rows(); i++) {
-		float x_val = unit_length*float(i) - 2.0f;
-		float y_val = float(evals(i).real());
-		
-		glVertex3f(x_val, y_val, 0.0f);
-
-		x_val = unit_length*float((i-1)) - 2.0f;
-		y_val = float(evals(i-1).real());
-
-		glVertex3f(x_val, y_val, 0.0f);
-
-	}
-
-	glfwSwapBuffers(window);
-}
 
 int main(void)
 {
@@ -3804,7 +3870,7 @@ int main(void)
 	if (!glfwInit())
 		exit(EXIT_FAILURE);
 
-	window = glfwCreateWindow(640, 480, "Seb's Coursework 3", NULL, NULL);
+	window = glfwCreateWindow(640, 520, "Seb's Coursework 3", NULL, NULL);
 
 	if (!window)
 	{
