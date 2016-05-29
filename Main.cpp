@@ -168,6 +168,8 @@ int nEVecsToUse = 25;
 int nEVecsToShow = 25;
 int currentlyHeldEvects = 0;
 
+enum Laplacian_type {uniform, beltrami};
+
 // ----------------------------------------------------------------------------
 
 // ----------------------- Mouse functionality---------------------------------
@@ -233,7 +235,7 @@ std::vector<Button> buttonList;
 std::vector<TextBox> textBoxList;
 
 //function declarations for the buttons
-void findEigenVectors(int nEVecsToUse);
+void findEigenVectors(int nEVecsToUse, Laplacian_type lap_type);
 void remakeFromEVecs(int nEVecsToUse);
 void remakeFromModifiedEVecs(int nEVecsToUse);
 void DoEigenDecomposition();
@@ -314,7 +316,7 @@ void DecreaseNEigenVectors() {
 void DoEigenDecomposition() {
 	std::cout << "Computing Eigen Decomposition, finding " << nEVecsToUse << " largest eigenvectors... ";
 	nEVecsToShow = nEVecsToUse;
-	findEigenVectors(nEVecsToUse);
+	findEigenVectors(nEVecsToUse, uniform);
 	remakeFromEVecs(nEVecsToShow);
 	std::cout << "Done.\n";
 }
@@ -459,10 +461,6 @@ void Reset() {
 	
 }
 
-
-
-
-
 //returns 1 or zero if mouse is above button
 int ButtonClickTest(Button* b, int x, int y)
 {
@@ -574,12 +572,6 @@ bool ButtonPassive(Button *b, int x, int y)
 }
 
 //	End of Button Functions
-// ---------------Slider Object-----------------------------------------------
-//This will be similar to the button framework but instead the button can move
-
-//if mouse in box - highlight
-//is clicked in box - move box to new x based on mouse location
-//mouse released - place box and update value;
 
 // ----------------------------------------------------------------------------
 
@@ -2204,12 +2196,13 @@ Eigen::SparseMatrix<double> makeLaplaceBeltrami() {
 
 }
 
-void findEigenVectors(int nLargestEigs) {
+void findEigenVectors(int nLargestEigs, Laplacian_type lap_type) {
 
 	std::cout << "Finding Eigen Vectors... ";
 
 	//use mesh 0
 	current_mesh = 0;
+
 
 	
 	double lambda = -1.0;
@@ -2225,8 +2218,21 @@ void findEigenVectors(int nLargestEigs) {
 	//construct A matrix - discrete laplacian
 	//A = I - lambda L	
 	Eigen::SparseMatrix<double> L = Eigen::SparseMatrix<double>(N, N);	
-	L = makeUniformLaplace();
+
+	if (lap_type == uniform) {
+		L = makeUniformLaplace();
+	}
+	else if (lap_type == beltrami) {
+		L = makeLaplaceBeltrami();
+	}
+	else {
+		std::cout << "incorrect laplacian selected using uniform\n";
+		L = makeUniformLaplace();
+	}
+
+	
 	//L = makeLaplaceBeltrami();
+
 	// now have the laplacian matrix	
 
 	//take an eigen decomposition of it:
@@ -2264,7 +2270,87 @@ void findEigenVectors(int nLargestEigs) {
 	evecs_coeffs = MatrixXd::Ones(nLargestEigs, 1);
 	evecs_coeffs_temp = MatrixXd::Ones(nLargestEigs, 3);
 	currentlyHeldEvects = nLargestEigs;
+	nEVecsToUse = currentlyHeldEvects;
 	
+
+}
+
+double SSD(void) {
+	
+	double ssd = 0.0;
+
+	//use mesh 0
+	current_mesh = 0;
+	//iterate over all vertices
+	MyMesh::VertexIter vlt, vBegin, vEnd;
+	vBegin = unchangedMesh.vertices_begin();
+	vEnd = unchangedMesh.vertices_end();
+
+	int N = 0;
+	for (vlt = vBegin; vlt != vEnd; ++vlt) {
+		N++;
+
+		OpenMesh::Vec3f diff = unchangedMesh.point(vlt.handle()) - mesh_list[current_mesh].point(vlt.handle());
+		ssd += diff.sqrnorm();
+
+	}
+
+	ssd *= (1.0/N);
+
+	return ssd;
+
+}
+
+void DoTest(std::string out_filename, int k, Laplacian_type lap_type) {
+	std::cout << "running test\n";
+	// do eig rec for n
+
+	//check ssd for each eig rec k
+
+	//save ssd for eack k to a text file
+
+	int nLargestEigs = k;
+	nEVecsToUse = nLargestEigs;
+	std::string outputFilename = out_filename;
+
+	findEigenVectors(nLargestEigs, lap_type);
+	remakeFromEVecs(nLargestEigs);
+	
+	//openfile	
+	std::ofstream out(outputFilename);
+	
+	std::string input_title = "k\tssd\teigenval\tCx\tCy\tCz\n";
+	out << input_title;
+
+	//this is the ssd
+	for (int i = 0; i < nLargestEigs; i++) {
+		//remake with k
+		remakeFromModifiedEVecs(i);
+		//find ssd
+		double thisSSD = SSD();
+		//saveline
+
+		std::string input;
+		input.append(std::to_string(i));
+		input.append("\t");
+		input.append(std::to_string(thisSSD));
+		input.append("\t");
+		input.append(std::to_string(evals(i).real()));
+		input.append("\t");
+		input.append(std::to_string(evecs_coeffs_temp(i, 0)));
+		input.append("\t");
+		input.append(std::to_string(evecs_coeffs_temp(i, 1)));
+		input.append("\t");
+		input.append(std::to_string(evecs_coeffs_temp(i, 2)));
+		input.append("\n");
+		out << input;
+
+	}
+
+	//close file
+	out.close();
+
+	std::cout << "test finished\n";
 
 }
 
@@ -2491,8 +2577,6 @@ void remakeFromModifiedEVecs(int nLargestEigs) {
 		
 	}
 
-	std::cout << "here!!\n";
-
 	//save new coords - update
 	for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
@@ -2511,7 +2595,6 @@ void remakeFromModifiedEVecs(int nLargestEigs) {
 	findVertNormalsFromFaces();
 
 }
-
 
 void findGaussCurvature() {
 	current_mesh = 0;
@@ -3028,7 +3111,7 @@ static void mouse_moved_callback(GLFWwindow* window, double x_pos, double y_pos)
 }
 
 //	End of functions for user input
-//
+
 
 
 //	UI functions
@@ -3156,7 +3239,7 @@ void DrawGUI(void) {
 }
 
 //	End of UI Funcitons
-//
+
 
 void display_pointcloud(GLFWwindow* window) {
 	float ratio;
@@ -3473,7 +3556,6 @@ void display_graphs(int width, int height) {
 
 }
 
-
 void display(GLFWwindow* window) {
 	float ratio;
 	int width, height;
@@ -3727,7 +3809,6 @@ void display(GLFWwindow* window) {
 
 }
 
-
 int main(void)
 {
 
@@ -3759,7 +3840,9 @@ int main(void)
 	std::vector<std::string> input_files;
 	
 	//input_files.push_back(filename_head);
-	input_files.push_back(filename_armadillo1k);
+	//input_files.push_back(filename_armadillo1k);
+	input_files.push_back(filename_dragon);
+	//input_files.push_back(filename_dragon4k);
 										
 	std::cout << "loading meshes...";
 
@@ -3862,6 +3945,9 @@ int main(void)
 	//Create the window:
 	glfwSetErrorCallback(error_callback);
 	GLFWwindow* window;
+	
+	//DoTest("uniform_k300_dragon_4k.txt", 5, uniform);		//		--------- TEST-------------------
+	//DoTest("uniform_k300_dragon_4k.txt", 5, beltrami);
 	
 
 	if (!glfwInit())
