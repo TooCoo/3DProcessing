@@ -2,7 +2,7 @@
 // Created by Ben Eisner on 5/25/16.
 //
 
-#include "TriMesh.h"
+#include "trimesh.h"
 
 #include <random>
 
@@ -23,10 +23,10 @@ extern CurvatureProperties curveProps;
 // GLUT
 #include <include/GL/freeglut.h>
 
-#include "TriMesh.h"
-#include "NeighbourList.h"
-#include "TransformationMatrix.h"
-#include "Viewer.h"
+#include "trimesh.h"
+#include "neighbor_list.h"
+#include "transformation_matrix.h"
+#include "viewer.h"
 
 #define PI 3.14159265
 
@@ -100,7 +100,7 @@ void TriMesh::colourOverlap(TriMesh otherMesh) {
 
 
     //each point //use ANN to find nearest neighbour
-    NeighbourList neighbour_list = NeighbourList();
+    neighbor_list neighbour_list = neighbor_list();
 
 
     for (vlt_1 = vBegin_1; vlt_1 != vEnd_1; ++vlt_1) {
@@ -126,7 +126,7 @@ void TriMesh::colourOverlap(TriMesh otherMesh) {
 
         //std::cout << "pid: " << pid << "\tqid: " << qid << "\n";
 
-        PointPair this_pp = PointPair(baseMesh.point(OpenMesh::VertexHandle(nnIdx[0])), otherMesh.baseMesh.point(*vlt_1), dists[0], pid, qid);
+        point_pair this_pp = point_pair(baseMesh.point(OpenMesh::VertexHandle(nnIdx[0])), otherMesh.baseMesh.point(*vlt_1), dists[0], pid, qid);
 
         neighbour_list.addPair(this_pp);
 

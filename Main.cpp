@@ -14,7 +14,7 @@
 //#include <OpenMesh/Core/Geometry/VectorT.hh>
 
 // local imports
-#include "Viewer.h"
+#include "viewer.h"
 
 /* ALIGN NORMALS NOT USED CURRENTLY
 void alignNormals() {

@@ -6,9 +6,9 @@
 #define INC_3D_PROCESSING_VIEWER_H
 
 #include "enums.h"
-#include "Button.h"
-#include "Mouse.h"
-#include "TriMesh.h"
+#include "button.h"
+#include "mouse.h"
+#include "trimesh.h"
 
 
 #include <vector>
@@ -57,8 +57,8 @@ private:
     int window_w = 640;
     int window_h = 480;
 
-    // Mouse
-    Mouse TheMouse = { 0,0,0,0,0 };
+    // mouse
+    mouse TheMouse = { 0,0,0,0,0 };
 
     // buttons
     std::vector<Button> buttonList;

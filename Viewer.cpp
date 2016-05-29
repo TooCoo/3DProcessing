@@ -2,7 +2,7 @@
 // Created by Ben Eisner on 5/24/16.
 //
 
-#include "Viewer.h"
+#include "viewer.h"
 
 // GLFW
 #include <GLFW/glfw3.h>
@@ -75,7 +75,7 @@ void Viewer::DrawButton(Button *b) {
     //deal with font if I want text
 
     if (b) {
-        if (b->highlighted) {
+        if (b->hoverState == Hover) {
             glColor3f(0.7f, 0.7f, 0.8f);
         }
         else {
@@ -96,7 +96,7 @@ void Viewer::DrawButton(Button *b) {
     //Button Outline
     glLineWidth(3);
     //Change colour when clicked
-    if (b->state)
+    if (b->pressState == Pressed && b->hoverState == Hover)
         glColor3f(0.4f, 0.4f, 0.4f);
     else
         glColor3f(0.8f, 0.8f, 0.8f);
@@ -107,7 +107,7 @@ void Viewer::DrawButton(Button *b) {
     glVertex2i(b->x_top_left, b->y_top_left + b->h);
     glEnd();
 
-    if (b->state)
+    if (b->pressState == Pressed)
         glColor3f(0.8f, 0.8f, 0.8f);
     else
         glColor3f(0.4f, 0.4f, 0.4f);
@@ -131,7 +131,7 @@ void Viewer::DrawButton(Button *b) {
     fonty = b->y_top_left + (b->h + 10) / 2;
 
     //if button pressed move string
-    if (b->state) {
+    if (b->pressState == Pressed) {
         fontx += 2;
         fonty += 2;
     }
@@ -139,7 +139,7 @@ void Viewer::DrawButton(Button *b) {
     glTranslatef(0.0f, 0.0f, 0.1f);
 
     //when highlighted use a different colour
-    if (b->highlighted)
+    if (b->hoverState == Hover)
     {
         glColor3f(0, 0, 0);
         Font(GLUT_BITMAP_HELVETICA_10, b->label, fontx, fonty);
@@ -279,12 +279,12 @@ void Viewer::colourPhong() {
 Viewer::Viewer(int nEVecsToUse) {
     this->nEVecsToUse = nEVecsToUse;
 
-    buttonList.push_back(Button( 5, 5, 100, 25, "Shading", "Shading", ToggleShading, &TheMouse));
-    buttonList.push_back(Button( 105, 5, 100, 25, "Show H", "Show H", ToggleShowMeanCurvature, &TheMouse));
-    buttonList.push_back(Button( 205, 5, 100, 25, "Wireframe", "Wireframe", ToggleWireFrame, &TheMouse));
-    buttonList.push_back(Button( 305, 5, 100, 25, "Pointcloud", "Pointcloud", TogglePointCloud, &TheMouse));
-    buttonList.push_back(Button( 405, 5, 100, 25, "Show E weight", "Show E weight", ToggleShowSpectralWeighting, &TheMouse));
-    buttonList.push_back(Button( 505, 5, 100, 25, "Show K1 K2", "Show K1 K2", ToggleShowPrincipleCurvature, &TheMouse));
+    buttonList.push_back(Button(5, 5, 100, 25, "Shading", ToggleShading));
+    buttonList.push_back(Button(105, 5, 100, 25, "Show H", ToggleShowMeanCurvature));
+    buttonList.push_back(Button(205, 5, 100, 25, "Wireframe", ToggleWireFrame));
+    buttonList.push_back(Button(305, 5, 100, 25, "Pointcloud", TogglePointCloud));
+    buttonList.push_back(Button(405, 5, 100, 25, "Show E weight", ToggleShowSpectralWeighting));
+    buttonList.push_back(Button(505, 5, 100, 25, "Show K1 K2", ToggleShowPrincipleCurvature));
 
     current_mesh = 0;
 
@@ -447,22 +447,22 @@ void Viewer::key_callback(GLFWwindow *window, int key, int scancode, int action,
         //in help
         if (key == GLFW_KEY_LEFT && action == GLFW_PRESS) {
             myViewer->global_rotation -= 5.0f;
-            std::cout << "Left\n";
+            // std::cout << "Left\n";
         }
         //in help
         if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS) {
             myViewer->global_rotation += 5.0f;
-            std::cout << "right\n";
+            // std::cout << "right\n";
         }
         //in help
         if (key == GLFW_KEY_UP && action == GLFW_PRESS) {
             myViewer->globalScale += 1.0f;
-            std::cout << "UP: Zoom in\n";
+            // std::cout << "UP: Zoom in\n";
         }
         //in help
         if (key == GLFW_KEY_DOWN && action == GLFW_PRESS) {
             myViewer->globalScale -= 1.0f;
-            std::cout << "DOWN: Zoom out\n";
+            // std::cout << "DOWN: Zoom out\n";
         }
         //in help
         if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
@@ -626,59 +626,42 @@ void Viewer::key_callback(GLFWwindow *window, int key, int scancode, int action,
 }
 
 void Viewer::mouse_callback(GLFWwindow *window, int button, int action, int mods) {
-    auto TheMouse = myViewer->TheMouse;
-    auto buttonList = myViewer->buttonList;
+    auto mouse = &myViewer->TheMouse;
 
     if (button == GLFW_MOUSE_BUTTON_1) {
-        //mouse button 1 - Left Mouse Button
-        TheMouse.lmb = action;
-
-        if (action == 1) {
-
-            for (int i = 0; i < buttonList.size(); i++) {
-               buttonList[i].ButtonPress(TheMouse.x, TheMouse.y);
-            }
-            TheMouse.xpress = TheMouse.x;
-            TheMouse.ypress = TheMouse.y;
-        }
-        else if (action == 0) {
-            for (int i = 0; i < buttonList.size(); i++) {
-                buttonList[i].ButtonRelease(TheMouse.x, TheMouse.y);
-            }
+        //mouse button 1 - Left mouse Button
+        mouse->lmb = action;
+        for (int i = 0; i < myViewer->buttonList.size(); i++) {
+            myViewer->buttonList[i].updateClickState(mouse->x, mouse->y, action == 1);
         }
 
     }
     else if(button == GLFW_MOUSE_BUTTON_2) {
-        //mouse button 2 - Right Mouse Button
-        TheMouse.rmb = action;
-    }
-    else {
-        //
+        //mouse button 2 - Right mouse Button
+        mouse->rmb = action;
     }
 }
 
 void Viewer::mouse_moved_callback(GLFWwindow *window, double x_pos, double y_pos) {
-    auto TheMouse = myViewer->TheMouse;
-    auto buttonList = myViewer->buttonList;
 
-    TheMouse.dx = TheMouse.x - x_pos;
-    TheMouse.dy = TheMouse.y - y_pos;
+    auto mouse = &myViewer->TheMouse;
 
-    TheMouse.x = (int)x_pos;
-    TheMouse.y = (int)y_pos;
+    mouse->dx = mouse->x - x_pos;
+    mouse->dy = mouse->y - y_pos;
+
+    mouse->x = (int)x_pos;
+    mouse->y = (int)y_pos;
 
     bool anyButton = false;
 
-    for (int i = 0; i < buttonList.size(); i++) {
-        if (buttonList[i].ButtonPassive(TheMouse.x, TheMouse.y)) {
+    for (int i = 0; i < myViewer->buttonList.size(); i++) {
+        if (myViewer->buttonList[i].updateHoverState(mouse->x, mouse->y)) {
             anyButton = true;
         }
     }
 
     if (!anyButton) {
-        //MatrixXd thisRotation = tm.getRotationMatrix(TheMouse.dx, 0, TheMouse.dy);
-        //globalRotationMatrix = globalRotationMatrix * thisRotation;
-        if (TheMouse.lmb) myViewer->global_rotation -= float(TheMouse.dx);// / 1.0f;
+        if (mouse->lmb) myViewer->global_rotation -= float(mouse->dx);// / 1.0f;
     }
 }
 
@@ -740,22 +723,3 @@ void Viewer::moveMeshesToOrigin() {
 void Viewer::setUnchangedMesh(TriMesh *triMesh) {
     unchangedMesh = triMesh;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

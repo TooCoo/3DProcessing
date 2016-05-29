@@ -43,8 +43,8 @@ find_library(ANN NAMES "libANN.a" PATHS ${ANN_INCLUDE_DIR}/lib)
 find_package(GLUT)
 
 # source
-set(SOURCE_FILES Main.cpp Viewer.cpp Viewer.h PointPair.h TransformationMatrix.h NeighbourList.h Button.cpp Button.h TriMesh.cpp
-        TriMesh.h TriMesh_curvature.cpp TriMesh_spectral.cpp Mouse.h enums.h)
+set(SOURCE_FILES main.cpp viewer.cpp viewer.h point_pair.h transformation_matrix.h neighbor_list.h button.cpp button.h trimesh.cpp
+        trimesh.h trimesh_curvature.cpp trimesh_spectral.cpp mouse.h enums.h)
 add_executable(3d_processing ${SOURCE_FILES})
 
 target_link_libraries(3d_processing glfw ${ANN} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} ${GLFW_LIBRARIES} OpenMeshCore OpenMeshTools)

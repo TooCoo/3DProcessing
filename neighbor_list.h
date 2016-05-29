@@ -5,28 +5,28 @@
 #include <OpenMesh/Core/Mesh/PolyMesh_ArrayKernelT.hh>
 #include <OpenMesh/Core/Geometry/VectorT.hh>
 
-#include "PointPair.h"
+#include "point_pair.h"
 
 #ifndef NEIGHBOURLIST_H
 #define NEIGHBOURLIST_H
 
-class NeighbourList {
+class neighbor_list {
 
 private:
 
-	std::vector<PointPair> neighbour_list;
+	std::vector<point_pair> neighbour_list;
 
 public:
 
-	NeighbourList() {
+	neighbor_list() {
 		;
 	}
 
-	void addPair(PointPair _pp) {
+	void addPair(point_pair _pp) {
 		neighbour_list.push_back(_pp);
 	}
 
-	PointPair getPair(int _i) {
+	point_pair getPair(int _i) {
 		return neighbour_list[_i];
 	}
 

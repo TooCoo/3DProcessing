@@ -5,10 +5,10 @@
 #ifndef INC_3D_PROCESSING_MOUSE_H
 #define INC_3D_PROCESSING_MOUSE_H
 
-// ----------------------- Mouse functionality---------------------------------
+// ----------------------- mouse functionality---------------------------------
 // Based on code found at: https://nccastaff.bournemouth.ac.uk/jmacey/RobTheBloke/www/opengl_programming.html
-// Modifed - some copied - I assume that's fine since I'm not being assessed on my GL Buttons and Mouse clicks
-struct Mouse
+// Modifed - some copied - I assume that's fine since I'm not being assessed on my GL Buttons and mouse clicks
+struct mouse
 {
     int x;		/*	the x coordinate of the mouse cursor	*/
     int y;		/*	the y coordinate of the mouse cursor	*/

@@ -5,7 +5,7 @@
 #ifndef POINTPAIR_H
 #define POINTPAIR_H
 
-class PointPair {
+class point_pair {
 
 private:
 	//two points and the distance between them
@@ -18,7 +18,7 @@ private:
 
 public:
 
-	PointPair() {
+	point_pair() {
 		p = OpenMesh::Vec3f()*0.0f;
 		q = OpenMesh::Vec3f()*0.0f;
 		d = 0.0f;
@@ -27,7 +27,7 @@ public:
 	}
 	
 	//constructor
-	PointPair(OpenMesh::Vec3f _p, OpenMesh::Vec3f _q, float _d, int _pi, int _qi) {
+	point_pair(OpenMesh::Vec3f _p, OpenMesh::Vec3f _q, float _d, int _pi, int _qi) {
 		p = _p;
 		q = _q;
 		d = _d;

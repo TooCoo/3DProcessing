@@ -8,7 +8,7 @@
 #include <spectra/include/GenEigsSolver.h>
 #include <spectra/include/MatOp/SparseGenMatProd.h>
 
-#include "TriMesh.h"
+#include "trimesh.h"
 
 using Eigen::MatrixXd;
 

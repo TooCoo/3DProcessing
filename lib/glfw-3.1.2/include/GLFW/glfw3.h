@@ -414,7 +414,7 @@ extern "C" {
 
 /*! @} */
 
-/*! @defgroup buttons Mouse buttons
+/*! @defgroup buttons mouse buttons
  *
  *  See [mouse button input](@ref input_mouse_button) for how these are used.
  *

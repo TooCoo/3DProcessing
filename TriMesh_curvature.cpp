@@ -3,7 +3,7 @@
 //
 
 #include <iostream>
-#include "TriMesh.h"
+#include "trimesh.h"
 
 extern CurvatureProperties curveProps;
 
