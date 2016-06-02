@@ -26,8 +26,6 @@
 #define SIN15DEGREE 0.2588190451
 
 //my data structure/classes
-#include "PointPair.h"
-#include "NeighbourList.h"
 #include "TransformationMatrix.h"
 
 // Import ANN so that I can find nearest neighbours
@@ -3118,6 +3116,7 @@ int main(void)
 	//std::string filename_head = "head.obj";	// Head from turbo squid - about 6k verts
 	std::string filename_dragon = "dragon_1500.obj";	// Stanford dragon model - low poly - about 1.5k verts
 	std::string filename_dragon4k = "dragon_4000.obj";	// Stanford dragon model - low poly - about 4.0k verts
+	std::string filename_dragon12k = "dragon_12k.obj";	// Stanford dragon model - low poly - about 12.0k verts
 	std::string filename_armadillo4k = "Armadillo_4000.obj";	// Stanford armadillo model - low poly - about 4.0k verts	
 	std::string filename_armadillo1k = "Armadillo_1000.obj";	// Stanford armadillo model - low poly - about 1.0k verts	
 	std::string filename_head = "head2.obj";	// Head from turbo squid - about 0.7k verts
@@ -3128,13 +3127,15 @@ int main(void)
 	std::string filename_ox = "ox.obj"; //low poly, blocky model I made in blender
 	std::string filename_ox1 = "ox_sd1.obj"; //subsurface division 1
 	std::string filename_ox2= "ox_sd2.obj"; //subsurface division 2
-
+	std::string filename_arnie = "ArnoldSchwarzeneggerBust.obj"; // from turbo squid
+	std::string filename_man_head = "male_head.obj"; // from turbo squid
+		
 	std::vector<std::string> input_files;
 	
 	//input_files.push_back(filename_head);
 	//input_files.push_back(filename_armadillo1k);
 	
-	input_files.push_back(filename_armadillo4k);
+	input_files.push_back(filename_dragon12k);
 										
 	std::cout << "loading meshes...";
 
