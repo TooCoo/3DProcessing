@@ -1,15 +1,9 @@
 # 3DProcessing
-A Description
+This program demonstrates spectral mesh processing and allows for reconstruction of a 3D mesh using a selected number of eigenvectors and modification of their spectral coefficients for controlled mesh deformation.
 
 There is now a funcitoning UI allowing control over the eigen decomposition and reconstruction.
 
-Press 'H' when the window appears for a list of commands.
-
-Press 'K' to find some eigen vectors and reconstruct shape from the largest eigen vectors. Starts at one vector used and goes up by one after each 'K' press.
-
 The code requires OpenGL, GLFW, ANN, and Eigen to function.
-
-Key G adds noise to mesh, I does 10 iterations of exmplicit smoothing, L does 1 iteration of implicit smoothing.
 
 Mesh can be rotated using the mouse or arrow keys.
 
