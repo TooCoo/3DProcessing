@@ -14,4 +14,9 @@ enum DisplayMode { Smooth, WireFrame, PointCloud };
 enum PressState { NotPressed, Pressed };
 enum HoverState { NoHover, Hover };
 
+// TriMesh.cpp
+enum Laplacian { Uniform, Cotan };
+enum EigenSolver { Exact, Approximate };
+enum Reconstruction { SmallestEigenvalues, LargestCoefficients };
+
 #endif //INC_3D_PROCESSING_ENUMS_H

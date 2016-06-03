@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.3)
 project(3d_processing)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3")
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 ######################################################################
 # LIBRARIES
 ######################################################################
@@ -43,8 +43,8 @@ find_library(ANN NAMES "libANN.a" PATHS ${ANN_INCLUDE_DIR}/lib)
 find_package(GLUT)
 
 # source
-set(SOURCE_FILES main.cpp viewer.cpp viewer.h point_pair.h transformation_matrix.h neighbor_list.h button.cpp button.h trimesh.cpp
-        trimesh.h trimesh_curvature.cpp trimesh_spectral.cpp mouse.h enums.h)
+set(SOURCE_FILES main.cpp viewer.cpp viewer_ui.cpp viewer.h viewer_ui_components.h trimesh.cpp
+        trimesh.h trimesh_curvature.cpp trimesh_spectral.cpp enums.h)
 add_executable(3d_processing ${SOURCE_FILES})
 
 target_link_libraries(3d_processing glfw ${ANN} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} ${GLFW_LIBRARIES} OpenMeshCore OpenMeshTools)

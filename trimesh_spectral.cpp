@@ -1,341 +1,318 @@
-//
-// Created by Ben Eisner on 5/25/16.
-//
-
+/*
+ * Spectral Mesh Processing
+ * Algorithms in this file implemented by Ben Eisner
+ */
+// standard library
 #include <iostream>
 
 // Spectra
 #include <spectra/include/GenEigsSolver.h>
 #include <spectra/include/MatOp/SparseGenMatProd.h>
+#include <queue>
 
+// local imports
 #include "trimesh.h"
 
 using Eigen::MatrixXd;
 
-void TriMesh::eigenReconstruction(double lambda, int nLargestEigs) {
-    //iterate over all vertices
-    BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
-    int N = 0;
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-        N++;
-    }
-
-    //construct A matrix - discrete laplacian
-    //A = I - lambda L
-
-    Eigen::SparseMatrix<double> L = Eigen::SparseMatrix<double>(N, N);
-
-    // make vectors (as a matrix) for old coords
-    Eigen::MatrixXd XnMat = Eigen::MatrixXd::Zero(N, 1);
-    Eigen::MatrixXd YnMat = Eigen::MatrixXd::Zero(N, 1);
-    Eigen::MatrixXd ZnMat = Eigen::MatrixXd::Zero(N, 1);
-
-    //fill matrix and vector
-
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-        OpenMesh::VertexHandle vh = *vlt;
-
-        int i = vh.idx();
-        int n_neighbours = 0;
-
-        XnMat(i, 0) = baseMesh.point(vh)[0];
-        YnMat(i, 0) = baseMesh.point(vh)[1];
-        ZnMat(i, 0) = baseMesh.point(vh)[2];
-
-        //now iterate over adjacent vertices
-        for (BaseMesh::ConstVertexVertexIter vvi = baseMesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
-            OpenMesh::VertexHandle vh2 = *vvi;
-            n_neighbours++;
-        }
-
-        double valence_normalisation = 1.0 / double(n_neighbours);
-
-        for (BaseMesh::ConstVertexVertexIter vvi = baseMesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
-            OpenMesh::VertexHandle vh2 = *vvi;
-            //n_neighbours++;
-            int j = vh2.idx();
-            L.insert(i, j) = valence_normalisation * lambda * 1.0;
-        }
-        L.insert(i, i) = 1.0 - 1.0*lambda;
-
-    }
-
-    std::cout << "\nLaplacian matrix made...\n";
-
-    // now have the laplacian matrix
-
-    //take an eigen decomposition of it:
-    Spectra::SparseGenMatProd<double> op(L);
-
-    // ncv affects rate of convergance - higher means faster convergance but also more memory usage
-    // ncv must be greater than n_largest Eigs + 2 and less than n which is size of the matrix
-    // I've found through trial and error that below relation returns the desired number of eigen vectors
-    int ncv = nLargestEigs + 30;
-
-    // Want the dominant eigen vectors which are associated with the smallest magnitude of eiven values
-    Spectra::GenEigsSolver< double, Spectra::SMALLEST_MAGN, Spectra::SparseGenMatProd<double> > eigs(&op, nLargestEigs, ncv);
-    // Initialize and compute
-    std::cout << "\nInitialising and solving...\n";
-
-    eigs.init();
-    int nconv = eigs.compute();
-
-    // Retrieve results
-    Eigen::VectorXcd evalues;
-    Eigen::MatrixXd evecs;
-    if (eigs.info() == Spectra::SUCCESSFUL) {
-        evalues = eigs.eigenvalues();
-        evecs = eigs.eigenvectors().real();
-        std::cout << "eval and evec assigned\n";
-    }
-    else {
-        std::cout << "Fewer eigen vectors than requested were returned, likely due to ncv being too small.\n";
-        std::cout << "will continue with retuned eigen vecs\n";
-        evecs = eigs.eigenvectors().real();
-    }
-
-    // new x = sum(i) of (x'e)e where e is the eigen vec to i
-    std::cout << "\nSolved, now reconstructing mesh\n";
-
-    Eigen::MatrixXd Xn1Mat = Eigen::MatrixXd::Zero(N, 1);
-    Eigen::MatrixXd Yn1Mat = Eigen::MatrixXd::Zero(N, 1);
-    Eigen::MatrixXd Zn1Mat = Eigen::MatrixXd::Zero(N, 1);
-
-    std::cout << "Xn size: " << N << "\n";
-    std::cout << "nEig: " << nLargestEigs << "\n";
-
-    for (int i = 0; i < evecs.cols(); i++) {
-
-        MatrixXd thisEigenVec = Eigen::MatrixXd::Zero(N, 1);
-
-        for (int j = 0; j < N; j++) {
-
-            thisEigenVec(j, 0) = evecs(j, i);
-        }
-
-
-        // sum of E^T X E	-	where E is the eigen vector, and X is the original point coords
-        // The (0, 0) refers to E^T X being a 1x1 matrix which in turn scales the eigen vecs
-        Xn1Mat += (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
-        Yn1Mat += (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
-        Zn1Mat += (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
-
-    }
-
-
-    std::cout << "saving new coords...\n";
-
-
-    //save new coords - update
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-
-        OpenMesh::Vec3f newCoord;
-
-        newCoord[0] = Xn1Mat(vlt->idx(), 0);
-        newCoord[1] = Yn1Mat(vlt->idx(), 0);
-        newCoord[2] = Zn1Mat(vlt->idx(), 0);
-
-        baseMesh.set_point(*vlt, newCoord);
-
-    }
-
-    // find new normals for colours
-    findFaceNormals();
-    findVertexNormalsFromFaces();
-
-    std::cout << "done.\n";
-}
-
-void TriMesh::findEigenVectors(int nLargestEigs) {
-    std::cout << "Finding Eigen Vectors... ";
-
+Eigen::SparseMatrix<double> TriMesh::computeUniformLaplacian() {
     double lambda = -1.0;
-
-    //iterate over all vertices
-    BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
-    int N = 0;
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-        N++;
-    }
-
-    //construct A matrix - discrete laplacian
-    //A = I - lambda L
-
+    int N = numVertices();
     Eigen::SparseMatrix<double> L = Eigen::SparseMatrix<double>(N, N);
 
-    //fill matrix and vector
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-        OpenMesh::VertexHandle vh = *vlt;
+    auto buildLaplacianRow = [&](OpenMesh::PolyConnectivity::VertexIter vlt) {
+        int i = vlt->idx();
+        int nNeighbors = numVertexNeighbors(vlt);
+        double norm = 1.0/ (double)nNeighbors;
 
-        int i = vh.idx();
-        int n_neighbours = 0;
+        // build each neighbor entry
+        auto insertNeighborValue = [&](OpenMesh::PolyConnectivity::ConstVertexVertexIter vvi) {
+            auto j = vvi->idx();
+            L.insert(i, j) = norm * lambda * 1.0;
+        };
+        mapOverVertexNeighbors(vlt, insertNeighborValue);
 
-        //now iterate over adjacent vertices
-        for (BaseMesh::ConstVertexVertexIter vvi = baseMesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
-            OpenMesh::VertexHandle vh2 = *vvi;
-            n_neighbours++;
-        }
+        L.insert(i, i) = 1.0 * (1 - lambda);
+    };
 
-        double valence_normalisation = 1.0 / double(n_neighbours);
+    // build each row
+    mapOverVertices(buildLaplacianRow);
+    laplacian = Uniform;
+    return L;
+}
 
-        for (BaseMesh::ConstVertexVertexIter vvi = baseMesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
-            OpenMesh::VertexHandle vh2 = *vvi;
-            //n_neighbours++;
-            int j = vh2.idx();
-            L.insert(i, j) = valence_normalisation * lambda * 1.0;
-        }
-        L.insert(i, i) = 1.0 - 1.0*lambda;
+double TriMesh::calculateBarycentricArea(OpenMesh::PolyConnectivity::VertexIter vlt) {
+    double totalArea = 0.0;
+    auto neighbors = getNeighbors(vlt);
 
+    // central point
+    auto v1 = mesh.point(*vlt);
+
+    for (int i = 0; i < neighbors.size(); i++) {
+        auto v2 = mesh.point(neighbors[i]);
+        auto v3 = mesh.point(neighbors[(i + 1) % neighbors.size()]);
+
+        auto a = (v2 - v1);
+        auto b = (v3 - v1);
+
+        // cross product is %
+        totalArea += 0.5 * (a % b).norm();
     }
 
-    // now have the laplacian matrix
+    return totalArea / 3.0;
+}
 
-    //take an eigen decomposition of it:
-    Spectra::SparseGenMatProd<double> op(L);
+Eigen::SparseMatrix<double> TriMesh::computeCotanLaplacian() {
+    int N = numVertices();
+    Eigen::SparseMatrix<double> L = Eigen::SparseMatrix<double>(N, N);
 
-    // ncv affects rate of convergance - higher means faster convergance but also more memory usage
-    // ncv must be greater than n_largest Eigs + 2 and less than n which is size of the matrix
-    // I've found through trial and error that below relation returns the desired number of eigen vectors
-    int ncv = nLargestEigs + 30;
+    std::vector<Eigen::Triplet<double>> entries;
+    entries.reserve(N * 6);
 
-    // Want the dominant eigen vectors which are associated with the smallest magnitude of eiven values
-    Spectra::GenEigsSolver< double, Spectra::SMALLEST_MAGN, Spectra::SparseGenMatProd<double> > eigs(&op, nLargestEigs, ncv);
+    double avgArea = 0;
+    auto averageFunc = [&](OpenMesh::PolyConnectivity::VertexIter vlt) {
+        avgArea += calculateBarycentricArea(vlt) / (double) N;
+    };
+    mapOverVertices(averageFunc);
 
-    // Initialize and compute
+    auto weightFunc = [&](OpenMesh::PolyConnectivity::VertexIter vlt) {
+        double normalizedArea = calculateBarycentricArea(vlt) / avgArea;
+        double wi = 0.0;
+
+        auto v1 = mesh.point(*vlt);
+        auto neighbors = getNeighbors(vlt);
+
+        for (int i = 0; i < neighbors.size(); i++) {
+            auto v2 = mesh.point(neighbors[i]);
+            auto v3 = mesh.point(neighbors[(i + 1) % neighbors.size()]);
+            auto v4 = mesh.point(neighbors[(i + 2) % neighbors.size()]);
+
+            auto a1 = v1 - v2;
+            auto a2 = v3 - v2;
+
+            auto b1 = v1 - v4;
+            auto b2 = v3 - v4;
+
+            // | is dot product...
+            double alpha = std::acos((a1 | a2)/(a1.norm() * a2.norm()));
+            double beta = std::acos((b1 | b2)/(b1.norm() * b2.norm()));
+
+            double cotSumArea = (1.0/std::tan(alpha) + 1.0/std::tan(beta))/(2 * normalizedArea);
+            // std::cout << "COTSUM: " << cotSumArea << std::endl;
+            wi -= cotSumArea;
+            // add each individual vertex
+            entries.push_back(Eigen::Triplet<double>(vlt->idx(), neighbors[(i + 1) % neighbors.size()].idx(), cotSumArea));
+        }
+
+        // add the current vertex
+        entries.push_back(Eigen::Triplet<double>(vlt->idx(), vlt->idx(), wi));
+    };
+    mapOverVertices(weightFunc);
+
+    L.setFromTriplets(entries.begin(), entries.end());
+    laplacian = Cotan;
+    return L;
+
+}
+
+Eigen::MatrixXd TriMesh::exactlyDecomposeLaplacian(Eigen::SparseMatrix<double> L) {
+    auto N = numVertices();
+
+    this->evecs_coeffs = MatrixXd::Ones(N, 1);
+    numEigsCalculated = N;
+
+    Eigen::MatrixXd eigenVecs = Eigen::MatrixXd::Zero(N, N);
+
+    // the solver only takes dense representations
+    auto denseRepresentation = Eigen::MatrixXd(L);
+    // construct and compute the eigenvectors and eigenvalues
+    Eigen::EigenSolver<Eigen::MatrixXd> es(denseRepresentation);
+
+    // because we only want the real parts of the eigenvectors
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++)
+            // just take the real part
+            eigenVecs(i, j) = es.eigenvectors().row(i)[j].real();
+    }
+
+    solver = Exact;
+    evecs = eigenVecs;
+    return eigenVecs;
+}
+
+MatrixXd TriMesh::approximatelyDecomposeLaplacian(int nSmallestEigs, Eigen::SparseMatrix<double> L) {
+    auto N = numVertices();
+
+    this->evecs_coeffs = MatrixXd::Ones(N, 1);
+    numEigsCalculated = nSmallestEigs;
+
+    // set up Spectra; ncv is a threshold for convergence between nSmallestEigs and N
+
+     Spectra::SparseGenMatProd<double> op(L);
+    int ncv = 2 * nSmallestEigs + 1;
+
+    Spectra::GenEigsSolver<double, Spectra::SMALLEST_MAGN, Spectra::SparseGenMatProd<double>> eigs(&op, nSmallestEigs, ncv);
 
     eigs.init();
     int nconv = eigs.compute();
 
-    // Retrieve results
-    Eigen::VectorXcd evalues;
-    //Eigen::MatrixXd evecs; - now initialised as a global variable
-    if (eigs.info() == Spectra::SUCCESSFUL) {
-        evalues = eigs.eigenvalues();
-        evecs = eigs.eigenvectors().real();
-        std::cout << "eval and evec assigned\n";
-    }
-    else {
-        std::cout << "Fewer eigen vectors than requested were returned, likely due to ncv being too small.\n";
-        std::cout << "will continue with retuned eigen vecs\n";
-        evecs = eigs.eigenvectors().real();
-    }
+    // results
+    Eigen::MatrixXd eigenVecs = Eigen::MatrixXd::Zero(N, N);
 
-    evecs_coeffs = MatrixXd::Ones(nLargestEigs, 1);
+    auto tempEigs = eigs.eigenvectors();
+    // we only want the real part
+    if (eigs.info() == Spectra::SUCCESSFUL) {
+        for (int i = 0; i < N; i++) {
+            for (int j = 0; j < nSmallestEigs; j++) {
+                // we want to reverse the order of the eigenvectors, because the smallest eigenvalues are at the back
+                eigenVecs(i, j) = tempEigs.real()(i, (nSmallestEigs - 1) - j);
+            }
+        }
+    }
+    solver = Approximate;
+    evecs = eigenVecs;
+    return eigenVecs;
 }
 
-void TriMesh::remakeFromEVecs(int nLargestEigs, TriMesh *unchangedMesh) {
-    //iterate over all vertices
-    BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = unchangedMesh->baseMesh.vertices_begin();
-    vEnd = unchangedMesh->baseMesh.vertices_end();
+void TriMesh::reconstructBySmallestEigenvalue(Eigen::MatrixXd eigenVecs, int nSmallestEigs) {
+    int N = numVertices();
 
-    int N = 0;
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-        N++;
+    // dim is the dimension of the mesh, usually 3
+    Eigen::MatrixXd origPoints = Eigen::MatrixXd::Zero(N, dim); // N x 3
+    Eigen::MatrixXd outputVerts = Eigen::MatrixXd::Zero(N, dim);
+
+    // make a copy of each point
+    auto copyFunc = [&](OpenMesh::PolyConnectivity::VertexIter vlt) {
+        int i = vlt->idx();
+        for (int j = 0; j < dim; j++)
+            origPoints(i, j) = intermediateMesh.point(*vlt)[j];
+    };
+    mapOverVertices(copyFunc);
+
+    // construct the resulting matrix one eigenvector at a time
+    // X^(k) = SUM(e_i * e_i^T * X) from 0 -> k-1
+
+    for (int i = 0; i < nSmallestEigs; i++) {
+        auto currentEVec = eigenVecs.col(i); // N x 1
+        // make sure the dimensions line up
+        // [N x 1] * [1 * N] -> [N x N] ------> [N x N] * [N x 3] -> [N x 3]
+        outputVerts += evecs_coeffs(i, 0) * (currentEVec * currentEVec.transpose()) * origPoints;
     }
 
-    // make vectors (as a matrix) for old coords
-    Eigen::MatrixXd XnMat = Eigen::MatrixXd::Zero(N, 1);
-    Eigen::MatrixXd YnMat = Eigen::MatrixXd::Zero(N, 1);
-    Eigen::MatrixXd ZnMat = Eigen::MatrixXd::Zero(N, 1);
-
-    //fill vector
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-        OpenMesh::VertexHandle vh = *vlt;
-
-        int i = vh.idx();
-        int n_neighbours = 0;
-
-        XnMat(i, 0) = unchangedMesh->baseMesh.point(vh)[0];
-        YnMat(i, 0) = unchangedMesh->baseMesh.point(vh)[1];
-        ZnMat(i, 0) = unchangedMesh->baseMesh.point(vh)[2];
-
-    }
-
-    // new points
-    Eigen::MatrixXd Xn1Mat = Eigen::MatrixXd::Zero(N, 1);
-    Eigen::MatrixXd Yn1Mat = Eigen::MatrixXd::Zero(N, 1);
-    Eigen::MatrixXd Zn1Mat = Eigen::MatrixXd::Zero(N, 1);
-
-    Eigen::MatrixXd Xn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
-    Eigen::MatrixXd Yn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
-    Eigen::MatrixXd Zn1MatOutput = Eigen::MatrixXd::Zero(N, 1);
-
-    std::cout << "nEig: " << nLargestEigs << "\n";
-
-    if (nLargestEigs > evecs.cols()) {
-        nLargestEigs = evecs.cols();
-        std::cout << "not enough e vecs\n";
-    }
-
-
-    displacementValues = Eigen::MatrixXd::Zero(N, nLargestEigs);
-
-    for (int i = 0; i < nLargestEigs; i++) {
-
-        MatrixXd thisEigenVec = Eigen::MatrixXd::Zero(N, 1);
-
-        for (int j = 0; j < N; j++) {
-            thisEigenVec(j, 0) = evecs(j, i);
-        }
-
-
-
-        // sum of E^T X E	-	where E is the eigen vector, and X is the original point coords
-        // The (0, 0) refers to E^T X being a 1x1 matrix which in turn scales the eigen vecs
-        Xn1Mat += (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
-        Yn1Mat += (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
-        Zn1Mat += (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
-
-        Xn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
-        Yn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
-        Zn1MatOutput += evecs_coeffs(i, 0) * (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
-
-        //thisEigenVec *= evecs_coeffs(i, 0);
-        thisEigenVec *= 2.0;
-
-        //Keep track of a displacement of the mesh when an eigen vector coeff is changed
-        Eigen::MatrixXd Xn1MatDisp = Xn1Mat + (thisEigenVec.transpose() * XnMat)(0, 0) * thisEigenVec;
-        Eigen::MatrixXd Yn1MatDisp = Yn1Mat + (thisEigenVec.transpose() * YnMat)(0, 0) * thisEigenVec;
-        Eigen::MatrixXd Zn1MatDisp = Zn1Mat + (thisEigenVec.transpose() * ZnMat)(0, 0) * thisEigenVec;
-        Xn1MatDisp -= Xn1Mat;
-        Yn1MatDisp -= Xn1Mat;
-        Zn1MatDisp -= Xn1Mat;
-
-        double max_disp = 0.0;
-
-        for (int k = 0; k < N; k++) {
-            displacementValues(k, i) = Xn1MatDisp(k, 0) * Xn1MatDisp(k, 0) + Yn1MatDisp(k, 0) * Yn1MatDisp(k, 0) + Zn1MatDisp(k, 0)* Zn1MatDisp(k, 0);
-            //displacementValues(k, i) = sqrt(displacementValues(k, i));
-            if (displacementValues(k, i) > max_disp) max_disp = displacementValues(k, i);
-        }
-
-        max_disp = (1.0 / max_disp); // this is now a scale factor
-
-        for (int k = 0; k < N; k++) {
-            displacementValues(k, i) *= max_disp;
-
-        }
-    }
-
-    //save new coords - update
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-
+    // update the points
+    auto setFunc = [&](OpenMesh::PolyConnectivity::VertexIter vlt) {
         OpenMesh::Vec3f newCoord;
+        // ugly, wish there was a better constructor...
+        for (int j = 0; j < dim; j++)
+            newCoord[j] = outputVerts(vlt->idx(), j);
 
-        newCoord[0] = Xn1MatOutput(vlt->idx(), 0);
-        newCoord[1] = Yn1MatOutput(vlt->idx(), 0);
-        newCoord[2] = Zn1MatOutput(vlt->idx(), 0);
+        mesh.set_point(*vlt, newCoord);
+    };
+    mapOverVertices(setFunc);
+    reconstruction = SmallestEigenvalues;
 
-        baseMesh.set_point(*vlt, newCoord);
+}
 
+void TriMesh::reconstructByLargestSpectralCoefficient(Eigen::MatrixXd eigenVecs, int nLargestCoeffs) {
+    int N = numVertices();
+
+    // dim is the dimension of the mesh, usually 3
+    Eigen::MatrixXd origPoints = Eigen::MatrixXd::Zero(N, dim); // N x 3
+    Eigen::MatrixXd outputVerts = Eigen::MatrixXd::Zero(N, dim);
+
+    // make a copy of each point
+    auto copyFunc = [&](OpenMesh::PolyConnectivity::VertexIter vlt) {
+        int i = vlt->idx();
+        for (int j = 0; j < dim; j++)
+            origPoints(i, j) = intermediateMesh.point(*vlt)[j];
+    };
+    mapOverVertices(copyFunc);
+
+    // construct the resulting matrix one eigenvector at a time
+    // X^(k) = SUM(e_i * e_i^T * X) from 0 -> k-1
+
+    // three different dimensions of projections
+    std::priority_queue<std::pair<double, int>> x_q;
+    std::priority_queue<std::pair<double, int>> y_q;
+    std::priority_queue<std::pair<double, int>> z_q;
+    for (int i = 0; i < numEigsCalculated; i++) {
+        auto currentEVec = eigenVecs.col(i);
+        Eigen::MatrixXd x_hat = currentEVec.transpose() * origPoints;
+
+        x_q.push(std::pair<double, int>(fabs(x_hat(0, 0)), i));
+        y_q.push(std::pair<double, int>(fabs(x_hat(0, 1)), i));
+        z_q.push(std::pair<double, int>(fabs(x_hat(0, 2)), i));
     }
-    // find new normals for colours
-    findFaceNormals();
-    findVertexNormalsFromFaces();
+
+    for (int i = 0; i < nLargestCoeffs; i++) {
+        int x_ix = x_q.top().second;
+        int y_ix = y_q.top().second;
+        int z_ix = z_q.top().second;
+
+        auto currentEXVec = eigenVecs.col(x_ix);
+        Eigen::MatrixXd x_hat = currentEXVec.transpose() * origPoints;
+
+        auto currentEYVec = eigenVecs.col(y_ix);
+        Eigen::MatrixXd y_hat = currentEYVec.transpose() * origPoints;
+
+        auto currentEZVec = eigenVecs.col(z_ix);
+        Eigen::MatrixXd z_hat = currentEZVec.transpose() * origPoints;
+
+        Eigen::MatrixXd temp = Eigen::MatrixXd::Zero(N, dim);
+        auto x_vec = evecs_coeffs(x_ix, 0) * eigenVecs.col(x_ix) * x_hat(0, 0);
+        auto y_vec = evecs_coeffs(y_ix, 0) * eigenVecs.col(y_ix) * y_hat(0, 1);
+        auto z_vec = evecs_coeffs(z_ix, 0) * eigenVecs.col(z_ix) * z_hat(0, 2);
+        temp << x_vec, y_vec, z_vec;
+
+        outputVerts += temp;
+
+        x_q.pop();
+        y_q.pop();
+        z_q.pop();
+    }
+
+
+    // update the points
+    auto setFunc = [&](OpenMesh::PolyConnectivity::VertexIter vlt) {
+        OpenMesh::Vec3f newCoord;
+        // ugly, wish there was a better constructor...
+        for (int j = 0; j < dim; j++)
+            newCoord[j] = outputVerts(vlt->idx(), j);
+
+        mesh.set_point(*vlt, newCoord);
+    };
+    mapOverVertices(setFunc);
+    reconstruction = LargestCoefficients;
+}
+
+// recompute eigenvectors based on past state
+void TriMesh::recomputeEigenvectors(int nLargestEigs) {
+    auto L = laplacian == Uniform ? computeUniformLaplacian() : computeCotanLaplacian();
+    solver == Exact ? exactlyDecomposeLaplacian(L)
+                    : approximatelyDecomposeLaplacian(nLargestEigs, L);
+}
+
+// reconstruct mesh based on past state
+void TriMesh::reconstructMesh(int nLargestEigs) {
+    reconstruction == SmallestEigenvalues ? reconstructBySmallestEigenvalue(evecs, nLargestEigs)
+                                          : reconstructByLargestSpectralCoefficient(evecs, nLargestEigs);
+}
+
+void TriMesh::increaseEVecCoeff(int eig, double coeff) {
+    evecs_coeffs(eig, 0) += coeff;
+}
+
+// get the squared distance
+double TriMesh::ssd() {
+    double ssd = 0.0;
+
+    // get the squared distance from points after reconstruction
+    auto ssdFunc = [&](OpenMesh::PolyConnectivity::VertexIter vlt) {
+        auto diff = trulyUnchangedMesh.point(*vlt) - mesh.point(*vlt);
+        ssd += diff.sqrnorm();
+    };
+
+    mapOverVertices(ssdFunc);
+    return ssd;
 }
 

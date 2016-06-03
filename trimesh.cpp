@@ -2,46 +2,52 @@
 // Created by Ben Eisner on 5/25/16.
 //
 
-#include "trimesh.h"
-
+// standard libraries
 #include <random>
 
-extern CurvatureProperties curveProps;
-
-
+// OpenMesh
 #include <OpenMesh/Core/IO/MeshIO.hh>
-#include <OpenMesh/Core/Mesh/PolyMesh_ArrayKernelT.hh>
-#include <OpenMesh/Core/Mesh/PolyConnectivity.hh>
-#include <OpenMesh/Core/Geometry/VectorT.hh>
+
+// ANN
 #include <include/ANN/ANN.h>
 
+// Eigen
 #include <eigen3/Eigen/Core>
+#include <eigen3/Eigen/Geometry>
+#include <eigen3/Eigen/SparseCore>
+#include <eigen3/Eigen/Sparse>
 
 // GLFW
 #include <GLFW/glfw3.h>
 
-// GLUT
-#include <include/GL/freeglut.h>
-
+// local imports
 #include "trimesh.h"
-#include "neighbor_list.h"
-#include "transformation_matrix.h"
-#include "viewer.h"
 
 #define PI 3.14159265
-
-// 3 degrees
-#define COS3DEGREE 0.99862953475
-#define SIN3DEGREE 0.05233595624
 
 // 15 degrees
 #define COS15DEGREE 0.96592582628
 #define SIN15DEGREE 0.2588190451
 
+extern CurvatureProperties curveProps;
+extern OpenMesh::VPropHandleT<double>       mean_curvature;
+extern OpenMesh::VPropHandleT<double>       gauss_curvature;
+extern OpenMesh::VPropHandleT<double>       k1;
+extern OpenMesh::VPropHandleT<double>       k2;
+
+
+struct PointPair {
+    OpenMesh::Vec3f p;
+    OpenMesh::Vec3f q;
+    float d;
+    int pi;
+    int qi;
+};
+
+typedef struct PointPair PointPair;
+
 void TriMesh::colourVertex(OpenMesh::VertexHandle _vh, OpenMesh::Vec4f col) {
-    OpenMesh::Vec3f newCoord;
-    newCoord = baseMesh.point(_vh);
-    baseMesh.set_color(_vh, col);
+    mesh.set_color(_vh, col);
 }
 
 void TriMesh::colourOverlap(TriMesh otherMesh) {
@@ -53,15 +59,15 @@ void TriMesh::colourOverlap(TriMesh otherMesh) {
     //use one mesh as the data set and one as the query set
 
     BaseMesh::VertexIter vlt_0, vBegin_0, vEnd_0;
-    vBegin_0 = baseMesh.vertices_begin();
-    vEnd_0 = baseMesh.vertices_end();
+    vBegin_0 = mesh.vertices_begin();
+    vEnd_0 = mesh.vertices_end();
 
     BaseMesh::VertexIter vlt_1, vBegin_1, vEnd_1;
-    vBegin_1 = otherMesh.baseMesh.vertices_begin();
-    vEnd_1 = otherMesh.baseMesh.vertices_end();
+    vBegin_1 = otherMesh.mesh.vertices_begin();
+    vEnd_1 = otherMesh.mesh.vertices_end();
 
     //_______________________________ Set up ANN kdtree, etc...
-    int maxPts = baseMesh.n_vertices();		// maximum number of data points
+    int maxPts = (int) mesh.n_vertices();		// maximum number of data points
     //int maxPts = 1000000;		// maximum number of data points
     int					nPts;					// actual number of data points
     ANNpointArray		dataPts;				// data points
@@ -86,7 +92,7 @@ void TriMesh::colourOverlap(TriMesh otherMesh) {
     //adding points from base mesh to data points set
     for (vlt_0 = vBegin_0; vlt_0 != vEnd_0; ++vlt_0) {
         for (int i = 0; i < dim; i++) {
-            dataPts[nPts][i] = baseMesh.point(*vlt_0)[i];
+            dataPts[nPts][i] = mesh.point(*vlt_0)[i];
         }
         nPts++;
     }
@@ -100,14 +106,14 @@ void TriMesh::colourOverlap(TriMesh otherMesh) {
 
 
     //each point //use ANN to find nearest neighbour
-    neighbor_list neighbour_list = neighbor_list();
+    std::vector<PointPair> neighbour_list;
 
 
     for (vlt_1 = vBegin_1; vlt_1 != vEnd_1; ++vlt_1) {
 
         //set query point
         for (int i = 0; i < dim; i++) {
-            queryPt[i] = otherMesh.baseMesh.point(*vlt_1)[i];
+            queryPt[i] = otherMesh.mesh.point(*vlt_1)[i];
 
         }
 
@@ -124,15 +130,19 @@ void TriMesh::colourOverlap(TriMesh otherMesh) {
         pid = nnIdx[0];
         qid = vlt_1->idx();
 
-        //std::cout << "pid: " << pid << "\tqid: " << qid << "\n";
+        PointPair this_pp = PointPair{mesh.point(OpenMesh::VertexHandle(nnIdx[0])), otherMesh.mesh.point(*vlt_1), (float)dists[0], pid, qid};
 
-        point_pair this_pp = point_pair(baseMesh.point(OpenMesh::VertexHandle(nnIdx[0])), otherMesh.baseMesh.point(*vlt_1), dists[0], pid, qid);
+        neighbour_list.push_back(this_pp);
 
-        neighbour_list.addPair(this_pp);
+    }
 
-    }//query loop
+    float average_distance = 0.0f;
 
-    float average_distance = neighbour_list.getAverageSeperation();
+    for (int i = 0; i < neighbour_list.size(); i++) {
+        average_distance += neighbour_list[i].d;
+    }
+
+    average_distance *= (1.0f / (float)neighbour_list.size());
 
     std::cout << "average_distance: " << average_distance << "\n";
     float cutoff_distance = 1.0f;
@@ -140,19 +150,17 @@ void TriMesh::colourOverlap(TriMesh otherMesh) {
     cutoff_distance += 0.000001;
 
     //colour if not close
-    //_______________________________________________________
     OpenMesh::Vec4f aligned_colour = OpenMesh::Vec4f(0.0f, 1.0f, 0.0f, 1.0f);
     OpenMesh::Vec4f unaligned_colour = OpenMesh::Vec4f(1.0f, 0.0f, 0.0f, 1.0f);
 
-    for (int neighbour_list_i = 0; neighbour_list_i < neighbour_list.GetSize(); neighbour_list_i++) {
-        if (cutoff_distance > neighbour_list.getPair(neighbour_list_i).getD()) {
+    for (int neighbour_list_i = 0; neighbour_list_i < neighbour_list.size(); neighbour_list_i++) {
+        if (cutoff_distance > neighbour_list[neighbour_list_i].d) {
             colourVertex(OpenMesh::VertexHandle(neighbour_list_i), aligned_colour);
         }
         else {
             colourVertex(OpenMesh::VertexHandle(neighbour_list_i), unaligned_colour);
         }
     }
-    //_______________________________________________________
 
 
     // clean things up
@@ -170,15 +178,15 @@ void TriMesh::colourOverlap(TriMesh otherMesh) {
 
 void TriMesh::colourByNormals() {
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
 
     for (vlt = vBegin; vlt != vEnd; ++vlt) {
         //do something here
 
-        float r = baseMesh.normal(*vlt)[0];
-        float g = baseMesh.normal(*vlt)[1];
-        float b = baseMesh.normal(*vlt)[2];
+        float r = mesh.normal(*vlt)[0];
+        float g = mesh.normal(*vlt)[1];
+        float b = mesh.normal(*vlt)[2];
 
 
         if (r < 0) r *= -1.0f;
@@ -193,8 +201,8 @@ void TriMesh::colourByNormals() {
 void TriMesh::colourPhong(Eigen::Vector3d material, Eigen::Vector3d lightDir, Eigen::Vector3d ambientLight,
                           Eigen::Vector3d specular, Eigen::Vector3d diffuse, Eigen::Vector3d virtual_camera_location) {
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
 
     //std::cout << vBegin << "\t" << vEnd << "\n";
 
@@ -202,10 +210,10 @@ void TriMesh::colourPhong(Eigen::Vector3d material, Eigen::Vector3d lightDir, Ei
     for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
 
-        Eigen::Vector3d n(baseMesh.normal(*vlt)[0], baseMesh.normal(*vlt)[1], baseMesh.normal(*vlt)[2]);
+        Eigen::Vector3d n(mesh.normal(*vlt)[0], mesh.normal(*vlt)[1], mesh.normal(*vlt)[2]);
         n.normalize();
         //light location = lightDir
-        //n = mesh_list[current_mesh].normal(*vlt)
+        //n = mesh_list[primary_mesh].normal(*vlt)
         Eigen::Vector3d reflection = 2.0 * (lightDir.dot(n)) * n - lightDir;
         reflection.normalize();
         float ks = material[0];
@@ -231,7 +239,7 @@ void TriMesh::colourPhong(Eigen::Vector3d material, Eigen::Vector3d lightDir, Ei
 void TriMesh::save() {
     try
     {
-        if (!OpenMesh::IO::write_mesh(baseMesh, "output_mesh.ply"))
+        if (!OpenMesh::IO::write_mesh(mesh, "output_mesh.ply"))
         {
             std::cerr << "Cannot write mesh to file 'output.off'" << std::endl;
         }
@@ -244,8 +252,8 @@ void TriMesh::save() {
 
 void TriMesh::colourRandomly() {
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
 
     //std::cout << vBegin << "\t" << vEnd << "\n";
 
@@ -266,8 +274,8 @@ void TriMesh::colourRandomly() {
 void TriMesh::findVertexNormalsFromFaces() {
 
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
 
     //itterate over all of the points
     //int n_adjacent = 0;
@@ -278,10 +286,10 @@ void TriMesh::findVertexNormalsFromFaces() {
 
         OpenMesh::Vec3f thisNormal = OpenMesh::Vec3f(0.0f, 0.0f, 0.0f);
 
-        for (BaseMesh::VertexFaceIter vfi = baseMesh.vf_iter(vh); vfi.is_valid(); ++vfi) {
+        for (BaseMesh::VertexFaceIter vfi = mesh.vf_iter(vh); vfi.is_valid(); ++vfi) {
 
             //n_adjacent++;
-            thisNormal += baseMesh.normal(*vfi);
+            thisNormal += mesh.normal(*vfi);
 
         }
 
@@ -290,13 +298,13 @@ void TriMesh::findVertexNormalsFromFaces() {
 
         thisNormal = thisNormal.normalize();
 
-        baseMesh.set_normal(vh, thisNormal);
+        mesh.set_normal(vh, thisNormal);
     }
 }
 
 void TriMesh::findFaceNormals() {
 //iterate over mesh's faces and find their normal
-    for (BaseMesh::FaceIter f_it = baseMesh.faces_begin(); f_it != baseMesh.faces_end(); ++f_it) {
+    for (BaseMesh::FaceIter f_it = mesh.faces_begin(); f_it != mesh.faces_end(); ++f_it) {
         //MyMesh::FaceVertexIter OpenMesh::PolyConnectivity::FaceVertexIter OpenMesh::PolyConnectivity::fv_iter(FaceHandle _fh); (FaceHandle _fh);
         OpenMesh::FaceHandle fa = *f_it;
 
@@ -307,9 +315,9 @@ void TriMesh::findFaceNormals() {
 
         int current_v = 0;
 
-        for (BaseMesh::FaceVertexIter fvi = baseMesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
+        for (BaseMesh::FaceVertexIter fvi = mesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
             OpenMesh::Vec3f thisCoord;
-            thisCoord = baseMesh.point(*fvi);
+            thisCoord = mesh.point(*fvi);
             current_v++;
 
             //std::cout << current_v << "\t" << thisCoord << "\n";
@@ -343,15 +351,15 @@ void TriMesh::findFaceNormals() {
 
         OpenMesh::Vec3f this_normal = OpenMesh::Vec3f(f_normal(0), f_normal(1), f_normal(2));
 
-        baseMesh.set_normal(fa, this_normal);
+        mesh.set_normal(fa, this_normal);
 
     }
 }
 
 void TriMesh::translate(float _dir, float move_amount, int current_axis) {
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
 
     OpenMesh::Vec3f translation = OpenMesh::Vec3f()*0.0f;
 
@@ -362,19 +370,19 @@ void TriMesh::translate(float _dir, float move_amount, int current_axis) {
     for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
         OpenMesh::Vec3f newCoord;
-        newCoord = baseMesh.point(*vlt);
+        newCoord = mesh.point(*vlt);
 
         newCoord += translation;
 
-        baseMesh.set_point(*vlt, newCoord);
+        mesh.set_point(*vlt, newCoord);
 
     }
 }
 
 void TriMesh::addNoise(float _sigma) {
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
 
     std::default_random_engine generator;
     std::normal_distribution<double> distribution(0.0, _sigma);
@@ -383,7 +391,7 @@ void TriMesh::addNoise(float _sigma) {
     for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
         OpenMesh::Vec3f newCoord;
-        newCoord = baseMesh.point(*vlt);
+        newCoord = mesh.point(*vlt);
 
         OpenMesh::Vec3f noise = OpenMesh::Vec3f(0.0f, 0.0f, 0.0f);
 
@@ -396,15 +404,16 @@ void TriMesh::addNoise(float _sigma) {
 
         newCoord += noise;
 
-        baseMesh.set_point(*vlt, newCoord);
+        mesh.set_point(*vlt, newCoord);
+        intermediateMesh.set_point(*vlt, newCoord);
 
     }
 }
 
 void TriMesh::rotate(float _dir, int current_axis) {
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
 
     MatrixXd rotation(3, 3);
 
@@ -457,7 +466,7 @@ void TriMesh::rotate(float _dir, int current_axis) {
     for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
         OpenMesh::Vec3f newCoord;
-        newCoord = baseMesh.point(*vlt);
+        newCoord = mesh.point(*vlt);
 
         MatrixXd coord_mat(3, 1);
         coord_mat << newCoord[0], newCoord[1], newCoord[2];
@@ -467,25 +476,15 @@ void TriMesh::rotate(float _dir, int current_axis) {
         newCoord[1] = coord_mat(1, 0);
         newCoord[2] = coord_mat(2, 0);
 
-        baseMesh.set_point(*vlt, newCoord);
+        mesh.set_point(*vlt, newCoord);
 
     }
 }
 
 TriMesh::TriMesh(BaseMesh baseMesh) {
-    this->baseMesh = baseMesh;
-    auto nVerts = baseMesh.n_vertices();
-    baseMesh.add_property(curveProps.mean_curvature, "mean_curvature");
-    baseMesh.property(curveProps.mean_curvature).set_persistent(true);
-
-    baseMesh.add_property(curveProps.gauss_curvature, "gauss_curvature");
-    baseMesh.property(curveProps.gauss_curvature).set_persistent(true);
-
-    baseMesh.add_property(curveProps.k1, "k1");
-    baseMesh.property(curveProps.k1).set_persistent(true);
-
-    baseMesh.add_property(curveProps.k2, "k2");
-    baseMesh.property(curveProps.k2).set_persistent(true);
+    this->mesh = baseMesh;
+    this->intermediateMesh = BaseMesh(baseMesh);
+    this->trulyUnchangedMesh = BaseMesh(baseMesh);
 }
 
 OpenMesh::Vec3f TriMesh::getCentreOfMesh() {
@@ -496,8 +495,8 @@ OpenMesh::Vec3f TriMesh::getCentreOfMesh() {
 
 
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
 
     //std::cout << vBegin << "\t" << vEnd << "\n";
 
@@ -505,7 +504,7 @@ OpenMesh::Vec3f TriMesh::getCentreOfMesh() {
         nVerts++;
         //do something here
         OpenMesh::Vec3f newCoord;
-        newCoord = baseMesh.point(*vlt);
+        newCoord = mesh.point(*vlt);
         averageLocation = averageLocation + newCoord;
 
     }
@@ -515,114 +514,11 @@ OpenMesh::Vec3f TriMesh::getCentreOfMesh() {
     return averageLocation;
 }
 
-void TriMesh::applyTranslation(MatrixXd _R, MatrixXd _T) {
-
-    MatrixXd T(1, 3);
-
-    T(0, 0) = _T(0, 0);
-    T(0, 1) = _T(1, 0);
-    T(0, 2) = _T(2, 0);
-
-    MatrixXd RTrans(3, 3);
-
-    RTrans(0, 0) = _R(0, 0);
-    RTrans(0, 1) = _R(1, 0);
-    RTrans(0, 2) = _R(2, 0);
-
-    RTrans(1, 0) = _R(0, 1);
-    RTrans(1, 1) = _R(1, 1);
-    RTrans(1, 2) = _R(2, 1);
-
-    RTrans(2, 0) = _R(0, 2);
-    RTrans(2, 1) = _R(1, 2);
-    RTrans(2, 2) = _R(2, 2);
-
-    BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
-
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-
-        OpenMesh::Vec3f newCoord;
-        newCoord = baseMesh.point(*vlt);
-
-        MatrixXd new_point_matrix(1, 3);
-        new_point_matrix(0, 0) = newCoord[0];
-        new_point_matrix(0, 1) = newCoord[1];
-        new_point_matrix(0, 2) = newCoord[2];
-        //new_point_matrix(0, 3) = 1.0f;
-        //std::cout << "_R\n" << _R << "\n";
-        //std::cout << "T\n" << T << "\n";
-        //std::cout << "translation:\n" << translation << "\n";
-        //std::cout << "old coord:\n" << new_point_matrix << "\n";
-        //system("PAUSE");
-
-        //new_point_matrix = new_point_matrix * _R + T;
-        new_point_matrix = new_point_matrix * RTrans + T;
-
-
-        newCoord[0] = new_point_matrix(0, 0);
-        newCoord[1] = new_point_matrix(0, 1);
-        newCoord[2] = new_point_matrix(0, 2);
-
-        baseMesh.set_point(*vlt, newCoord);
-
-    }
-}
-
-void TriMesh::applyTranslation(MatrixXd _x) {
-
-    MatrixXd T(1, 3);
-
-    T(0, 0) = _x(3, 0);
-    T(0, 1) = _x(4, 0);
-    T(0, 2) = _x(5, 0);
-
-    TranformationMatrix tm = TranformationMatrix();
-
-    MatrixXd R(3, 3);
-    R = tm.getRotationMatrix(_x(0, 0), _x(1, 0), _x(2, 0));
-
-    BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
-
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-
-        OpenMesh::Vec3f newCoord;
-        newCoord = baseMesh.point(*vlt);
-
-        MatrixXd new_point_matrix(1, 3);
-        new_point_matrix(0, 0) = newCoord[0];
-        new_point_matrix(0, 1) = newCoord[1];
-        new_point_matrix(0, 2) = newCoord[2];
-
-        //std::cout << "R\n" << R << "\n";
-        //std::cout << "T\n" << T << "\n";
-        //std::cout << "old coord:\n" << new_point_matrix << "\n";
-
-
-        //new_point_matrix = new_point_matrix * _R + T;
-        new_point_matrix = new_point_matrix * R + T;
-
-        newCoord[0] = new_point_matrix(0, 0);
-        newCoord[1] = new_point_matrix(0, 1);
-        newCoord[2] = new_point_matrix(0, 2);
-
-        baseMesh.set_point(*vlt, newCoord);
-
-        //std::cout << "newcoor:\n" << newCoord << "\n";
-
-        //system("PAUSE");
-
-    }
-}
-
 void TriMesh::display(DisplayMode displayMode, ColorMode colorMode, int whichEigToDraw) {
     if (displayMode == PointCloud) {
         BaseMesh::VertexIter vlt, vBegin, vEnd;
-        vBegin = baseMesh.vertices_begin();
-        vEnd = baseMesh.vertices_end();
+        vBegin = mesh.vertices_begin();
+        vEnd = mesh.vertices_end();
         glPointSize(1.0f);
 
         glBegin(GL_POINTS);
@@ -631,7 +527,7 @@ void TriMesh::display(DisplayMode displayMode, ColorMode colorMode, int whichEig
 
             OpenMesh::Vec3f thisCoord;
             OpenMesh::Vec4f thisCol;
-            thisCoord = baseMesh.point(*vlt);
+            thisCoord = mesh.point(*vlt);
 
             thisCol[0] = 1.0f;
             thisCol[1] = 1.0f;
@@ -652,9 +548,9 @@ void TriMesh::display(DisplayMode displayMode, ColorMode colorMode, int whichEig
             glColor3f(1.f, 1.f, 1.f);
             glLineWidth(1.5);
             //Draw wireframe
-            for (BaseMesh::EdgeIter e_it = baseMesh.edges_begin(); e_it != baseMesh.edges_end(); ++e_it) {
-                BaseMesh::Point to = baseMesh.point(baseMesh.to_vertex_handle(baseMesh.halfedge_handle(*e_it, 0)));
-                BaseMesh::Point from = baseMesh.point(baseMesh.from_vertex_handle(baseMesh.halfedge_handle(*e_it, 0)));
+            for (BaseMesh::EdgeIter e_it = mesh.edges_begin(); e_it != mesh.edges_end(); ++e_it) {
+                BaseMesh::Point to = mesh.point(mesh.to_vertex_handle(mesh.halfedge_handle(*e_it, 0)));
+                BaseMesh::Point from = mesh.point(mesh.from_vertex_handle(mesh.halfedge_handle(*e_it, 0)));
                 glBegin(GL_LINE_STRIP);
                 OpenMesh::Vec4f thisCol;
 
@@ -669,26 +565,26 @@ void TriMesh::display(DisplayMode displayMode, ColorMode colorMode, int whichEig
         //draw faces
         glBegin(GL_TRIANGLES);
         glColor3f(0.0f, 0.0f, 0.0f);
-        auto begin = baseMesh.faces_begin();
-        auto end = baseMesh.faces_end();
-        for (BaseMesh::FaceIter f_it = baseMesh.faces_begin(); f_it != baseMesh.faces_end(); ++f_it) {
+        auto begin = mesh.faces_begin();
+        auto end = mesh.faces_end();
+        for (BaseMesh::FaceIter f_it = mesh.faces_begin(); f_it != mesh.faces_end(); ++f_it) {
             //MyMesh::FaceVertexIter OpenMesh::PolyConnectivity::FaceVertexIter OpenMesh::PolyConnectivity::fv_iter(FaceHandle _fh); (FaceHandle _fh);
             OpenMesh::FaceHandle fa = *f_it;
             OpenMesh::Vec3f thisCol;
-            thisCol = baseMesh.normal(fa);
+            thisCol = mesh.normal(fa);
             float col_scale_factor = 1.0 / curveProps.max_mean_curvature;
             if (colorMode == MeanCurvature) {
 
 
-                for (BaseMesh::FaceVertexIter fvi = baseMesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
+                for (BaseMesh::FaceVertexIter fvi = mesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
                     OpenMesh::Vec3f thisCoord;
                     OpenMesh::Vec3f thisCol;
-                    thisCoord = baseMesh.point(*fvi);
+                    thisCoord = mesh.point(*fvi);
 
-                    float thisH = baseMesh.property(curveProps.mean_curvature, OpenMesh::VertexHandle(*fvi));
-                    float thisK = baseMesh.property(curveProps.gauss_curvature, OpenMesh::VertexHandle(*fvi));
-                    //float thisK1 = mesh_list[current_mesh].property(k1, OpenMesh::VertexHandle(fvi.handle()));
-                    //float thisK2 = mesh_list[current_mesh].property(k2, OpenMesh::VertexHandle(fvi.handle()));
+                    float thisH = mesh.property(mean_curvature, OpenMesh::VertexHandle(*fvi));
+                    float thisK = mesh.property(gauss_curvature, OpenMesh::VertexHandle(*fvi));
+                    //float thisK1 = mesh_list[primary_mesh].property(k1, OpenMesh::VertexHandle(fvi.handle()));
+                    //float thisK2 = mesh_list[primary_mesh].property(k2, OpenMesh::VertexHandle(fvi.handle()));
 
 
                     //thisCol = simpleHColourMap(thisH);
@@ -701,23 +597,23 @@ void TriMesh::display(DisplayMode displayMode, ColorMode colorMode, int whichEig
 
                     glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
 
-                    //std::cout << mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(*fvi)) << "\n";
+                    //std::cout << mesh_list[primary_mesh].property(mean_curvature, OpenMesh::VertexHandle(*fvi)) << "\n";
 
                 }
             }
             else if (colorMode == GaussianCurvature) {
 
-                for (BaseMesh::FaceVertexIter fvi = baseMesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
+                for (BaseMesh::FaceVertexIter fvi = mesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
                     OpenMesh::Vec3f thisCoord;
                     OpenMesh::Vec3f thisCol;
-                    thisCoord = baseMesh.point(*fvi);
+                    thisCoord = mesh.point(*fvi);
 
                     //OpenMesh::Vec4f thisCol;
-                    //thisCol = mesh_list[current_mesh].color(fvi.handle());
+                    //thisCol = mesh_list[primary_mesh].color(fvi.handle());
 
-                    float thisK = baseMesh.property(curveProps.gauss_curvature, OpenMesh::VertexHandle(*fvi));
-                    float thisK1 = baseMesh.property(curveProps.k1, OpenMesh::VertexHandle(*fvi));
-                    float thisK2 = baseMesh.property(curveProps.k2, OpenMesh::VertexHandle(*fvi));
+                    float thisK = mesh.property(gauss_curvature, OpenMesh::VertexHandle(*fvi));
+                    float thisK1 = mesh.property(k1, OpenMesh::VertexHandle(*fvi));
+                    float thisK2 = mesh.property(k2, OpenMesh::VertexHandle(*fvi));
 
                     thisCol = this->simpleColourMap(thisK, curveProps.max_gauss_curvature,
                                                     curveProps.min_gauss_curvature);
@@ -730,21 +626,21 @@ void TriMesh::display(DisplayMode displayMode, ColorMode colorMode, int whichEig
 
                     glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
 
-                    //std::cout << mesh_list[current_mesh].property(mean_curvature, OpenMesh::VertexHandle(*fvi)) << "\n";
+                    //std::cout << mesh_list[primary_mesh].property(mean_curvature, OpenMesh::VertexHandle(*fvi)) << "\n";
 
                 }
             }
             else if (colorMode == PrincipalCurvature) {
-                for (BaseMesh::FaceVertexIter fvi = baseMesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
+                for (BaseMesh::FaceVertexIter fvi = mesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
                     OpenMesh::Vec3f thisCoord;
                     OpenMesh::Vec3f thisCol;
-                    thisCoord = baseMesh.point(*fvi);
+                    thisCoord = mesh.point(*fvi);
 
                     //OpenMesh::Vec4f thisCol;
-                    //thisCol = mesh_list[current_mesh].color(*fvi);
+                    //thisCol = mesh_list[primary_mesh].color(*fvi);
 
-                    float thisK1 = baseMesh.property(curveProps.k1, OpenMesh::VertexHandle(*fvi));
-                    float thisK2 = baseMesh.property(curveProps.k2, OpenMesh::VertexHandle(*fvi));
+                    float thisK1 = mesh.property(k1, OpenMesh::VertexHandle(*fvi));
+                    float thisK2 = mesh.property(k2, OpenMesh::VertexHandle(*fvi));
 
                     //thisCol = simpleColourMap(thisK, max_gauss_curvature, min_gauss_curvature);
                     thisCol = this->principleKColourmap(thisK1, thisK2);
@@ -764,13 +660,13 @@ void TriMesh::display(DisplayMode displayMode, ColorMode colorMode, int whichEig
                 //int whichEigToDraw = 5;
                 //Eigen::MatrixXd displacementValues;
 
-                for (BaseMesh::FaceVertexIter fvi = baseMesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
+                for (BaseMesh::FaceVertexIter fvi = mesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
                     OpenMesh::Vec3f thisCoord;
                     OpenMesh::Vec3f thisCol;
-                    thisCoord = baseMesh.point(*fvi);
+                    thisCoord = mesh.point(*fvi);
 
                     //OpenMesh::Vec4f thisCol;
-                    //thisCol = mesh_list[current_mesh].color(fvi.handle());
+                    //thisCol = mesh_list[primary_mesh].color(fvi.handle());
 
                     thisCol[0] = this->displacementValues(fvi->idx(), whichEigToDraw);
                     thisCol[1] = this->displacementValues(fvi->idx(), whichEigToDraw);
@@ -791,14 +687,14 @@ void TriMesh::display(DisplayMode displayMode, ColorMode colorMode, int whichEig
                         glColor3f(thisCol[0], thisCol[1], thisCol[2]);
                     }
                 }
-                for (BaseMesh::FaceVertexIter fvi = baseMesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
+                for (BaseMesh::FaceVertexIter fvi = mesh.fv_iter(fa); fvi.is_valid(); ++fvi) {
                     OpenMesh::Vec3f thisCoord;
-                    thisCoord = baseMesh.point(*fvi);
+                    thisCoord = mesh.point(*fvi);
                     if (displayMode == Smooth && displayMode != WireFrame) {
                         //OpenMesh::Vec4f thisCol;
-                        //thisCol = mesh_list[current_mesh].color(fvi.handle());
+                        //thisCol = mesh_list[primary_mesh].color(fvi.handle());
                         OpenMesh::Vec3f thisCol;
-                        thisCol = baseMesh.normal(*fvi);
+                        thisCol = mesh.normal(*fvi);
                         glColor3f(thisCol[0], thisCol[1], thisCol[2]);
                     }
                     glVertex3f(thisCoord[0], thisCoord[1], thisCoord[2]);
@@ -816,32 +712,65 @@ void TriMesh::display(DisplayMode displayMode, ColorMode colorMode, int whichEig
 
 void TriMesh::translate(OpenMesh::Vec3f translation) {
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
 
     int n_points = 0;
 
     for (vlt = vBegin; vlt != vEnd; ++vlt) {
         //do something here
         n_points++;
-        baseMesh.point(*vlt) += translation;
+        mesh.point(*vlt) += translation;
 
     }
 }
 
-int TriMesh::n_verts() {
-    return baseMesh.n_vertices();
+void TriMesh::mapOverVertices(std::function<void(OpenMesh::PolyConnectivity::VertexIter)> func) {
+    //iterate over all vertices
+    BaseMesh::VertexIter vlt, vBegin, vEnd;
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
+    for (vlt = vBegin; vlt != vEnd; ++vlt) {
+        func(vlt);
+    }
 }
 
-int TriMesh::n_faces() {
-    return baseMesh.n_faces();
+void TriMesh::mapOverVertexNeighbors(OpenMesh::PolyConnectivity::VertexIter vlt,
+                                     std::function<void(OpenMesh::PolyConnectivity::ConstVertexVertexIter)> func) {
+    for (BaseMesh::ConstVertexVertexIter vvi = mesh.vv_iter(*vlt); vvi.is_valid(); ++vvi) {
+        func(vvi);
+    }
 }
 
+int TriMesh::numVertices() {
+    int N = 0;
+    auto sum = [&](OpenMesh::PolyConnectivity::VertexIter vlt) {
+        N += 1;
+    };
+    mapOverVertices(sum);
+    return N;
+}
 
+int TriMesh::numVertexNeighbors(OpenMesh::PolyConnectivity::VertexIter vlt) {
+    int N = 0;
+    auto sum = [&](OpenMesh::PolyConnectivity::ConstVertexVertexIter vvi) {
+        N += 1;
+    };
+    mapOverVertexNeighbors(vlt, sum);
+    return N;
+}
 
+std::vector<OpenMesh::VertexHandle> TriMesh::getNeighbors(OpenMesh::PolyConnectivity::VertexIter vlt) {
+    std::vector<OpenMesh::VertexHandle> neighbors;
+    auto areaFunc = [&](OpenMesh::PolyConnectivity::ConstVertexVertexIter vvi) {
+        neighbors.push_back(*vvi);
+    };
+    mapOverVertexNeighbors(vlt, areaFunc);
+    return neighbors;
+}
 
-
-
-
-
-
+void TriMesh::reset() {
+    mesh = BaseMesh(trulyUnchangedMesh);
+    intermediateMesh = BaseMesh(trulyUnchangedMesh);
+    evecs_coeffs.setOnes();
+}

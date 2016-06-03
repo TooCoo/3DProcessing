@@ -6,8 +6,7 @@
 #define INC_3D_PROCESSING_VIEWER_H
 
 #include "enums.h"
-#include "button.h"
-#include "mouse.h"
+#include "viewer_ui_components.h"
 #include "trimesh.h"
 
 
@@ -30,119 +29,148 @@
 #include <eigen3/Eigen/SparseCore>
 #include <eigen3/Eigen/Sparse>
 
-typedef void(*ButtonCallback)();
+
+// parameters
+#define transformDelta 1.0f
+#define rotationDelta 5.0f
+#define zoomDelta 1.0f
+#define centerScalar -4.0f
+#define implicitLambda -1.0
+#define diffusionLambda -0.0000001
+#define noiseSigma 0.005f
 
 class Viewer {
 private:
 
-    // unchanged mesh
-    TriMesh *unchangedMesh;
+    // --------------------------------------------------------------
+    // Display
+    // --------------------------------------------------------------
 
-    // lighting properties
+    // lighting and camera
     Eigen::Vector3d material = Eigen::Vector3d(0.9f, 0.9f, 0.9f);
     Eigen::Vector3d lightDir = Eigen::Vector3d(0.5f, 0.5f, 0.0f);
     Eigen::Vector3d ambientLight = Eigen::Vector3d(0.3f, 0.3f, 0.3f);
     Eigen::Vector3d diffuse = Eigen::Vector3d(0.5f, 0.5f, 0.5f);
     Eigen::Vector3d specular = Eigen::Vector3d(0.6f, 0.6f, 0.6f);
+    Eigen::Vector3d virtualCameraLocation = Eigen::Vector3d(0.0f, -1.0f, 0.0f);
     double alpha_shininess = 0.5f;
 
-    Eigen::Vector3d virtual_camera_location = Eigen::Vector3d(0.0f, -1.0f, 0.0f);
-
-    // global rotation
+    // global transformation
     float globalScale = 1.0f;
     float global_rotation = 0.0f;
     OpenMesh::Vec3f global_translation = OpenMesh::Vec3f();
 
-    //window dimensions
     int window_w = 640;
     int window_h = 480;
 
+    // --------------------------------------------------------------
+    // UI Components
+    // --------------------------------------------------------------
+
     // mouse
-    mouse TheMouse = { 0,0,0,0,0 };
+    Mouse mouse = { 0,0,0,0,0 };
 
     // buttons
     std::vector<Button> buttonList;
+    std::vector<TextBox> textBoxList;
     void DrawButton(Button* b);
-    void Font(void *font, const char *text, int x, int y);
+    void DrawTextBoxes(TextBox *tb);
+    void DrawText(void *font, const char *text, int x, int y);
+
+    // --------------------------------------------------------------
+    // UI State and Constants
+    // --------------------------------------------------------------
 
     // edit modes
-    bool editmode = false;
+    bool editMode = false;
     EditType editType = RotationMode;
     ColorMode colorMode = None;
     DisplayMode displayMode = Smooth;
 
+    // edit values
     int current_axis = 0; //x = 0, y = 1, z = 2
     float move_amount = 0.0001;
 
+    // meshes
+    std::vector<TriMesh> mesh_list;
+    int primary_mesh = 0;
+    int secondary_mesh = 1;
+
     // spectral properties
-    int nEVecsToUse = 10;
-    double eig_inc = 0.5;
+    int nEVecsToCalculate = 3;
+    int nEVecsToDraw = 3;
+    int selectedEVec = 1;
+    double eig_inc = 0.1;
 
+    // --------------------------------------------------------------
+    // UI Static Functions
+    // --------------------------------------------------------------
 
-    // button functions
-    static void TogglePointCloud();
-    static void ToggleShading();
-    static void ToggleWireFrame();
-    static void ToggleShowPrincipleCurvature();
-    static void ToggleShowMeanCurvature();
-    static void ToggleShowGaussCurvature();
-    static void ToggleShowSpectralWeighting();
-
-    // spectral-specific code
-    int whichEigToDraw = 5;
-
-    // display
-    void display(GLFWwindow* window);
-
-
+    // display mode functions
+    static void SetDisplayMode(DisplayMode mode);
+    static void SetColoringMode(ColorMode mode);
 
     // coloring
-    void colourPhong();
-    void colourByNormals();
-    void colourRandomly();
+    static void ColourByPhong();
+    static void ColourByNormals();
+    static void ColourRandomly();
+    static void ColourOverlap();
 
     // move meshes
-    void moveMeshesToCommonCentre();
-    void moveMeshesToOrigin();
-    void editModeTranslate(float _dir);
-    void editModeRotate(float _dir);
-    OpenMesh::Vec3f getCentreOfMesh();
+    static void MoveMeshesToCommonCentre();
+    static void MoveMeshesToOrigin();
+    static void EditModeTranslate(float _dir);
+    static void EditModeRotate(float _dir);
+    static OpenMesh::Vec3f GetCentreOfMesh();
 
-    // normals
-    void findVertexNormalsFromFaces();
-    void findFaceNormals();
+    // normals and curvature
+    static void FindNormalsAndCurvature();
+    static void FindVertexNormalsFromFaces();
+    static void FindFaceNormals();
+    static void FindGaussianCurvature();
 
     // noise
-    void addNoise(float _sigma);
+    static void AddNoise(float sigma);
 
-    // curvature
-    void uniformLaplaceDiscretization();
-    void discreteLaplaceDiscretization();
-    void findGaussianCurvature();
-    void findGaussianCurvature2();
-    void applyDiffusionFlow(double lambda);
-    void implicitLaplacianMeshSmoothing(double lambda);
+    // smoothing
+    static void ApplyDiffusionFlow(double lambda);
+    static void ImplicitLaplacianMeshSmoothing(double lambda);
 
-    // spectral
-    void eigenReconstruction(double lambda, int nLargestEigs);
-    void findEigenVectors(int nLargestEigs);
-    void remakeFromEVecs(int nLargestEigs);
+    // spectral display/calculation state
+    static void IncreaseCalculatedEVecs(int delta, int maxNumEigs);
+    static void IncreaseNShownEigenVectors(int delta);
+    static void IncreaseSelectedEigenVector(int delta);
+    static void IncreaseSpectralCoeff(int delta);
 
-    // UI callbacks
+    // spectral tasks
+    static void RecomputeEigenvectors();
+    static void ReconstructMesh();
+    static void ReconstructMesh(Laplacian laplacian, EigenSolver solverType, Reconstruction reconType);
+    static void PerformSpectralTests();
+
+    // general mesh functions
+    static void SaveMesh();
+    static void ResetMeshes();
+
+    // --------------------------------------------------------------
+    // UI Callbacks
+    // --------------------------------------------------------------
+
     static void error_callback(int error, const char* description);
     static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void mouse_callback(GLFWwindow* window, int button, int action, int mods);
     static void mouse_moved_callback(GLFWwindow* window, double x_pos, double y_pos);
 
+    // --------------------------------------------------------------
+    // UI Functions
+    // --------------------------------------------------------------
+
+    // display
+    void display(GLFWwindow* window);
+
 public:
-
-    // meshes
-    std::vector<TriMesh> mesh_list;
-    int current_mesh = 0;
-
     Viewer(int nEVecsToUse);
     void addMesh(TriMesh triMesh);
-    void setUnchangedMesh(TriMesh *triMesh);
     void display();
 };
 

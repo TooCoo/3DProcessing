@@ -6,143 +6,24 @@
 #include "trimesh.h"
 
 extern CurvatureProperties curveProps;
+extern OpenMesh::VPropHandleT<double>       mean_curvature;
+extern OpenMesh::VPropHandleT<double>       gauss_curvature;
+extern OpenMesh::VPropHandleT<double>       k1;
+extern OpenMesh::VPropHandleT<double>       k2;
 
 #define PI 3.14159265
 
-void TriMesh::uniformLaplaceDiscretization() {
-    BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
-
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-        OpenMesh::VertexHandle vh = *vlt;
-        //find the adjecent verts
-
-        OpenMesh::Vec3f thisNormal = baseMesh.normal(vh);
-        OpenMesh::Vec3f xi = baseMesh.point(vh);
-        OpenMesh::Vec3f xj = OpenMesh::Vec3f(0.0f, 0.0f, 0.0f);
-        OpenMesh::Vec3f laplace = OpenMesh::Vec3f(0.0f, 0.0f, 0.0f);
-        int n_adjacent = 0;
-
-        for (BaseMesh::VertexVertexIter vvi = baseMesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
-
-            n_adjacent++;
-            xj = baseMesh.point(*vvi);
-            laplace += (xj - xi);
-        }
-
-        //normalise
-        laplace *= 1.0f / float(n_adjacent);
-
-        laplace *= -0.5;
-
-        float h = laplace.norm();
-
-        //need to check if h is negative
-        laplace.normalize();
-        if ((laplace + thisNormal).norm() < 1.0f) {
-            h *= -1.0f;
-        }
-
-        baseMesh.property(curveProps.mean_curvature, vh) = h;
-
-        if (h > curveProps.max_mean_curvature) curveProps.max_mean_curvature = h;
-        if (h < curveProps.min_mean_curvature) curveProps.min_mean_curvature = h;
-
-    }
-
-    std::cout << "max H: " << curveProps.max_mean_curvature << "\n";
-    std::cout << "min H: " << curveProps.min_mean_curvature << "\n";
-    //system("PAUSE");
-}
-
-void TriMesh::discreteLaplaceDiscretization() {
+void TriMesh::findGaussianCurvature() {
     //iterate over all vertices
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
 
     for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
         OpenMesh::VertexHandle vh = *vlt;
 
-        OpenMesh::Vec3f xi = baseMesh.point(vh);
-
-        std::vector<OpenMesh::Vec3f> xj;
-
-        OpenMesh::Vec3f unnormalisedS = OpenMesh::Vec3f(0.0f, 0.0f, 0.0f);
-        float area = 0.0f;
-
-        //now iterate over adjacent vertices
-        for (BaseMesh::ConstVertexVertexIter vvi = baseMesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
-            xj.push_back(baseMesh.point(*vvi));
-        }
-        //now find laplaceS
-        for (int i = 0; i < xj.size(); i++) {
-
-            //I need angles which look at the edge xi -> xj
-            OpenMesh::Vec3f xjm1;
-            OpenMesh::Vec3f xjp1;
-            if (i == 0) {
-                xjm1 = xj[xj.size() - 1];
-            }
-            else {
-                xjm1 = xj[i - 1];
-            }
-
-            if (i == xj.size() - 1) {
-                xjp1 = xj[0];
-            }
-            else {
-                xjp1 = xj[i + 1];
-            }
-            //alpha angle is xj xj-1 xi
-            OpenMesh::Vec3f vecAB = xi - xjm1;
-            OpenMesh::Vec3f vecAC = xj[i] - xjm1;
-            float alpha = acos(OpenMesh::dot(vecAB, vecAC) / (vecAB.norm() * vecAC.norm()));
-            //beta angle is xj xj+1 xi
-            vecAB = xi - xjp1;
-            vecAC = xj[i] - xjp1;
-            float beta = acos(OpenMesh::dot(vecAB, vecAC) / (vecAB.norm() * vecAC.norm()));
-            //cot is cos/sin
-            //w = cot alpha + cot beta
-            float weight = (cos(alpha) / sin(alpha)) + (cos(beta) / sin(beta));
-            area += vecAB.norm()*vecAC.norm() * sin(beta) / 6.0f;
-            unnormalisedS += weight * (xj[i] - xi);
-
-        }
-
-        //now normalise S by area
-        area *= 2.0f;
-
-        float h = unnormalisedS.norm();
-        h *= (1.0f / area);
-
-        h *= 0.5;
-
-        baseMesh.property(curveProps.mean_curvature, vh) = h;
-
-        if (h > curveProps.max_mean_curvature) curveProps.max_mean_curvature = h;
-        if (h < curveProps.min_mean_curvature) curveProps.min_mean_curvature = h;
-
-    }
-
-    std::cout << "max H: " << curveProps.max_mean_curvature << "\n";
-    std::cout << "min H: " << curveProps.min_mean_curvature << "\n";
-
-}
-
-void TriMesh::findGaussianCurvature2() {
-    //iterate over all vertices
-    BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
-
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-
-        OpenMesh::VertexHandle vh = *vlt;
-
-        OpenMesh::Vec3f xi = baseMesh.point(vh);
+        OpenMesh::Vec3f xi = mesh.point(vh);
 
         std::vector<OpenMesh::Vec3f> xj;
 
@@ -152,8 +33,8 @@ void TriMesh::findGaussianCurvature2() {
         double angle_deficit = 0.0;
 
         //now iterate over adjacent vertices
-        for (BaseMesh::ConstVertexVertexIter vvi = baseMesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
-            xj.push_back(baseMesh.point(*vvi));
+        for (BaseMesh::ConstVertexVertexIter vvi = mesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
+            xj.push_back(mesh.point(*vvi));
         }
 
         //now find laplaceS
@@ -204,7 +85,7 @@ void TriMesh::findGaussianCurvature2() {
         h *= (1.0f / area);
 
         //check for -ve h
-        OpenMesh::Vec3f normalVariation = (unnormalisedS.normalized() - baseMesh.normal(vh));// .norm();
+        OpenMesh::Vec3f normalVariation = (unnormalisedS.normalized() - mesh.normal(vh));// .norm();
 
         if (normalVariation.norm() < 0.5f) {
             h *= -1.0f;
@@ -227,20 +108,20 @@ void TriMesh::findGaussianCurvature2() {
             double thisk1 = h + sqrt(inside_sqrt);
             double thisk2 = h - sqrt(inside_sqrt);
 
-            baseMesh.property(curveProps.k1, *vlt) = h + sqrt(inside_sqrt);
-            baseMesh.property(curveProps.k2, *vlt) = h - sqrt(inside_sqrt);
+            mesh.property(k1, *vlt) = h + sqrt(inside_sqrt);
+            mesh.property(k2, *vlt) = h - sqrt(inside_sqrt);
 
         }
         else {
             std::cout << "error: in find gauss curvature2: negative sqrt or less than 3 neighbouring vertices setting k1 and k2 to zero\n";
             h = 0.0;
             K = 0.0;
-            baseMesh.property(curveProps.k1, *vlt) = 0.0;
-            baseMesh.property(curveProps.k2, *vlt) = 0.0;
+            mesh.property(k1, *vlt) = 0.0;
+            mesh.property(k2, *vlt) = 0.0;
         }
 
-        baseMesh.property(curveProps.mean_curvature, vh) = h;
-        baseMesh.property(curveProps.gauss_curvature, *vlt) = K;
+        mesh.property(mean_curvature, vh) = h;
+        mesh.property(gauss_curvature, *vlt) = K;
 
         if (h > curveProps.max_mean_curvature) curveProps.max_mean_curvature = h;
         if (h < curveProps.min_mean_curvature) curveProps.min_mean_curvature = h;
@@ -258,24 +139,24 @@ void TriMesh::findGaussianCurvature2() {
 
 void TriMesh::applyDiffusionFlow(double lambda) {
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
 
     for (vlt = vBegin; vlt != vEnd; ++vlt) {
 
         OpenMesh::Vec3f newCoord;
-        newCoord = baseMesh.point(*vlt);
-        double h = baseMesh.property(curveProps.mean_curvature, OpenMesh::VertexHandle(*vlt));
-        newCoord += lambda * h * baseMesh.normal(*vlt);
-        baseMesh.set_point(*vlt, newCoord);
+        newCoord = mesh.point(*vlt);
+        double h = mesh.property(mean_curvature, OpenMesh::VertexHandle(*vlt));
+        newCoord += lambda * h * mesh.normal(*vlt);
+        mesh.set_point(*vlt, newCoord);
 
     }
 }
 
 void TriMesh::implicitLaplacianMeshSmoothing(double lambda) {
     BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
+    vBegin = mesh.vertices_begin();
+    vEnd = mesh.vertices_end();
     int N = 0;
     for (vlt = vBegin; vlt != vEnd; ++vlt) {
         N++;
@@ -296,12 +177,12 @@ void TriMesh::implicitLaplacianMeshSmoothing(double lambda) {
         int i = vh.idx();
         int n_neighbours = 0;
 
-        Xn(i) = baseMesh.point(vh)[0];
-        Yn(i) = baseMesh.point(vh)[1];
-        Zn(i) = baseMesh.point(vh)[2];
+        Xn(i) = mesh.point(vh)[0];
+        Yn(i) = mesh.point(vh)[1];
+        Zn(i) = mesh.point(vh)[2];
 
         //now iterate over adjacent vertices
-        for (BaseMesh::ConstVertexVertexIter vvi = baseMesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
+        for (BaseMesh::ConstVertexVertexIter vvi = mesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
             OpenMesh::VertexHandle vh2 = *vvi;
             n_neighbours++;
             //int j = vh2.idx();
@@ -309,7 +190,7 @@ void TriMesh::implicitLaplacianMeshSmoothing(double lambda) {
         }
         double valence_normalisation = 1.0 / double(n_neighbours);
 
-        for (BaseMesh::ConstVertexVertexIter vvi = baseMesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
+        for (BaseMesh::ConstVertexVertexIter vvi = mesh.vv_iter(vh); vvi.is_valid(); ++vvi) {
             OpenMesh::VertexHandle vh2 = *vvi;
             //n_neighbours++;
             int j = vh2.idx();
@@ -344,174 +225,9 @@ void TriMesh::implicitLaplacianMeshSmoothing(double lambda) {
         newCoord[1] = Yn1(vlt->idx());
         newCoord[2] = Zn1(vlt->idx());
 
-        baseMesh.set_point(*vlt, newCoord);
+        mesh.set_point(*vlt, newCoord);
 
     }
-}
-
-void TriMesh::findGaussianCurvature() {
-    int wrongCurves = 0;
-    int n_curves = 0;
-
-    BaseMesh::VertexIter vlt, vBegin, vEnd;
-    vBegin = baseMesh.vertices_begin();
-    vEnd = baseMesh.vertices_end();
-
-    for (vlt = vBegin; vlt != vEnd; ++vlt) {
-        //over each vertex
-
-        float max_angle = 0.0f;
-        float min_angle = 100.0f;
-
-        //need to sum areas and angles at the current vertex
-
-        //K = (2*pi - sum(angle))/Area
-        //Note area is 1/3 area of all adjacent faces
-
-        float area = 0;
-        float angle = 0;
-
-        //iterate over faces
-        int n_adjacent_faces = 0;
-        for (BaseMesh::ConstVertexFaceIter vfi = baseMesh.vf_iter(*vlt); vfi.is_valid(); ++vfi) {
-            n_adjacent_faces++;
-            OpenMesh::Vec3f core_vert = baseMesh.point(*vlt);
-
-            //Should be three verts
-            OpenMesh::Vec3f v1;
-            OpenMesh::Vec3f v2;
-            OpenMesh::Vec3f v3;
-
-            int vert_count = 0;
-
-            //I need coords of opposite vertecies
-            for (BaseMesh::FaceVertexIter fvi = baseMesh.fv_iter(*vfi); fvi.is_valid(); ++fvi) {
-
-                vert_count++;
-
-                switch (vert_count) {
-                    case 1:
-                        v1 = baseMesh.point(*fvi);
-                        break;
-                    case 2:
-                        v2 = baseMesh.point(*fvi);
-                        break;
-                    case 3:
-                        v3 = baseMesh.point(*fvi);
-                        break;
-                    default:
-                        std::cout << "Error in findGaussCurvature: More than three vertices in triangle\n";
-                        break;
-                }
-            }
-
-            //I now have the faces verts so I can calculate the angle and area
-
-            OpenMesh::Vec3f vecAB;
-            OpenMesh::Vec3f vecAC;
-
-            OpenMesh::Vec3f point_A;
-            OpenMesh::Vec3f point_B;
-            OpenMesh::Vec3f point_C;
-
-            if (v1 == core_vert) {
-                point_A = v1;
-                point_B = v2;
-                point_C = v3;
-                //std::cout << "v1\n";
-            }
-            else if (v2 == core_vert) {
-                point_A = v2;
-                point_B = v1;
-                point_C = v3;
-                //std::cout << "v2\n";
-            }
-            else if (v3 == core_vert) {
-                point_A = v3;
-                point_B = v1;
-                point_C = v2;
-                //std::cout << "v3\n";
-            }
-            else {
-                std::cout << "Error in findGaussCurvature: cannot find starting vertex\n";
-            }
-
-            if (point_A == point_B || point_A == point_C || point_B == point_C) {
-                std::cout << "Error in find gauss curvature: points are the same\n";
-            }
-
-            vecAB = point_B - point_A;
-            vecAC = point_C - point_A;
-
-            //AB dot AC / |AB||AC| = cosThete
-            //theta = acos(AB dot AC / |AB||AC|)
-
-            float theta = acos(OpenMesh::dot(vecAB, vecAC) / (vecAB.norm() * vecAC.norm()));
-
-            if (theta > max_angle) max_angle = theta;
-            if (theta < min_angle) min_angle = theta;
-
-            //Area = 0.5 * |AB||AC|sin theta
-            float thisArea = vecAB.norm()*vecAC.norm() * sin(theta) / 6.0f;
-            area += thisArea;
-            angle += theta;
-        }
-
-        //if(n_adjacent_faces == )
-        if (n_adjacent_faces != 1) {
-
-            if ((PI*2.0f - angle) < 0.0f) {
-                std::cout << "negative angle deficit" << "\n";
-            }
-
-            float K = (PI*2.0f - angle) / area;
-
-
-
-            if (area == 0.0) {
-                std::cout << area << "\n";
-                K = 1.0;
-            }
-
-            float H = baseMesh.property(curveProps.mean_curvature, *vlt);
-            float inside_sqrt = H*H - K;
-
-
-            n_curves++;
-
-            if (inside_sqrt < 0.0) {
-                wrongCurves++;
-                //cover the thing
-                baseMesh.property(curveProps.gauss_curvature, *vlt) = 0.0;
-                baseMesh.property(curveProps.k1, *vlt) = 0.0;
-                baseMesh.property(curveProps.k2, *vlt) = 0.0;
-                inside_sqrt *= -1.0f;
-            }
-            //else {
-
-            float thisk1 = H + sqrt(inside_sqrt);
-            float thisk2 = H - sqrt(inside_sqrt);
-            baseMesh.property(curveProps.gauss_curvature, *vlt) = K;
-            baseMesh.property(curveProps.k1, *vlt) = thisk1;
-            baseMesh.property(curveProps.k2, *vlt) = thisk2;
-
-            if (K > curveProps.max_gauss_curvature) curveProps.max_gauss_curvature = K;
-            if (K < curveProps.min_gauss_curvature) curveProps.min_gauss_curvature = K;
-            if (thisk1 > curveProps.max_k1_curvature) curveProps.max_k1_curvature = thisk1;
-            if (thisk2 < curveProps.min_k2_curvature) curveProps.min_k2_curvature = thisk2;
-            //}
-
-        }
-
-        //std::cout << "min angle: \t" << min_angle << "\tmax angle: \t" << max_angle << "\n";
-
-    }
-
-    std::cout << "max k : " << curveProps.max_gauss_curvature << "\n";
-    std::cout << "min k : " << curveProps.min_gauss_curvature << "\n";
-    std::cout << "max k1: " << curveProps.max_k1_curvature << "\n";
-    std::cout << "min k2: " << curveProps.min_k2_curvature << "\n";
-    std::cout << "ratio of bad curvatures: " << wrongCurves / n_curves << "\n";
 }
 
 OpenMesh::Vec3f TriMesh::simpleColourMap(float value, float max, float min) {

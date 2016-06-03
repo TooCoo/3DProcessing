@@ -2,631 +2,302 @@
 // Created by Ben Eisner on 5/24/16.
 //
 
-#include "viewer.h"
-
-// GLFW
-#include <GLFW/glfw3.h>
-
-// GLUT
-#include <include/GL/freeglut.h>
-
 #include <iostream>
+#include <fstream>
+
+#include "viewer.h"
 
 using Eigen::MatrixXd;
 
 extern Viewer *myViewer;
 
-// ----------------------------------------------------------------------------
-// TOGGLING FUNCTIONS
-// ----------------------------------------------------------------------------
+void Viewer::key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
+    if (action == GLFW_PRESS) {
+        // Edit mode keys
+        if (myViewer->editMode) {
+            switch (key) {
+                // enable icp mode
+                case GLFW_KEY_E:
+                    std::cout << "E: Enabling icp mode... ";
+                    myViewer->editMode = false;
+                    std::cout << "Done." << std::endl;
 
-void Viewer::TogglePointCloud() {
-    myViewer->displayMode = PointCloud;
-    std::cout << "Render mode: pointcloud\n";
-}
+                    // enable rotation
+                case GLFW_KEY_R:
+                    std::cout << "R: Toggle rotation mode... ";
+                    myViewer->editType = RotationMode;
+                    std::cout << "Done." << std::endl;
+                    break;
 
-void Viewer::ToggleShading() {
-    myViewer->displayMode = Smooth;
-    std::cout << "Render mode: toggled flat/smooth shading\n";
-}
+                    // enable translation
+                case GLFW_KEY_T:
+                    std::cout << "R: Toggle translation mode... ";
+                    myViewer->editType = TranslationMode;
+                    std::cout << "Done." << std::endl;
+                    break;
 
-void Viewer::ToggleWireFrame() {
-    std::cout << "Render mode: toggled wireframe\n";
-    myViewer->displayMode = WireFrame;
-}
+                    // perform some sort of negative transformation
+                case GLFW_KEY_LEFT:
+                    if (myViewer->editType == TranslationMode) {
+                        std::cout << "Left: Move mesh left... ";
+                        EditModeTranslate(-transformDelta);
+                        std::cout << "Done." << std::endl;
+                    }
+                    else {
+                        std::cout << "Left: Rotate mesh left... ";
+                        EditModeRotate(-transformDelta);
+                        std::cout << "Done." << std::endl;
+                    }
+                    break;
 
-void Viewer::ToggleShowPrincipleCurvature() {
-    std::cout << "Toggled show principle curvature\n";
-    std::cout << "\t colour codes:\t Red:\t elliptic surface\n";
-    std::cout << "\t \t Green:\t parabolic\n";
-    std::cout << "\t \t Blue:\t hyperbolic\n";
-    myViewer->colorMode = PrincipalCurvature;
-}
+                    // perform some sort of positive transformation
+                case GLFW_KEY_RIGHT:
+                    if (myViewer->editType == TranslationMode) {
+                        std::cout << "Right: Move mesh right... ";
+                        EditModeTranslate(transformDelta);
+                        std::cout << "Done." << std::endl;
+                    }
+                    else {
+                        std::cout << "Right: Rotate mesh right... ";
+                        EditModeRotate(transformDelta);
+                        std::cout << "Done." << std::endl;
+                    }
+                    break;
 
-void Viewer::ToggleShowMeanCurvature() {
-    std::cout << "Toggled show mean curvature\n";
-    std::cout << "\t colour codes: Red: low values, Blue: High value\n";
-    myViewer->colorMode = MeanCurvature;
-}
+                    // select x axis
+                case GLFW_KEY_X:
+                    std::cout << "X: select X axis... ";
+                    myViewer->current_axis = 0;
+                    std::cout << "Done." << std::endl;
+                    break;
 
-void Viewer::ToggleShowGaussCurvature() {
-    std::cout << "Toggled show Gaussian curvature\n";
-    std::cout << "\t colour codes: Red: low values, Blue: High value\n";
-    myViewer->colorMode = GaussianCurvature;
-}
+                    // select y axis
+                case GLFW_KEY_Y:
+                    std::cout << "Y: select Y axis... ";
+                    myViewer->current_axis = 1;
+                    std::cout << "Done." << std::endl;
+                    break;
 
-void Viewer::ToggleShowSpectralWeighting() {
-    if (myViewer->colorMode == SpectralWeight) {
-        myViewer->whichEigToDraw++;
-
-        std::cout << myViewer->whichEigToDraw << "\n";
-
-        if (myViewer->whichEigToDraw == myViewer->nEVecsToUse) {
-            myViewer->whichEigToDraw = 0;
+                    // select z axis
+                case GLFW_KEY_Z:
+                    std::cout << "Z: select z axis... ";
+                    myViewer->current_axis = 2;
+                    std::cout << "Done." << std::endl;
+                    break;
+            }
         }
 
-        std::cout << myViewer->whichEigToDraw << "\n";
+        // non-edit-mode
+        switch (key) {
+            // quit
+            case GLFW_KEY_ESCAPE:
+                std::cout << "Closing window... ";
+                glfwSetWindowShouldClose(window, GL_TRUE);
+                std::cout << "Done." << std::endl;
+                break;
 
-    }
-    std::cout << "Showing weight of " << myViewer->whichEigToDraw << "th eigen vector\n";
-}
+            // enable edit mode
+            case GLFW_KEY_E:
+                std::cout << "E: Enabling edit mode... ";
+                myViewer->editMode = true;
+                std::cout << "Done." << std::endl;
+                break;
 
-void Viewer::DrawButton(Button *b) {
-    //deal with font if I want text
+            // rotate global scene left
+            case GLFW_KEY_LEFT:
+                std::cout << "Left: Rotate left... ";
+                myViewer->global_rotation -= 5.0f;
+                std::cout << "Done." << std::endl;
+                break;
 
-    if (b) {
-        if (b->hoverState == Hover) {
-            glColor3f(0.7f, 0.7f, 0.8f);
+            // rotate global scene right
+            case GLFW_KEY_RIGHT:
+                std::cout << "Right: Rotate right... ";
+                myViewer->global_rotation += rotationDelta;
+                std::cout << "Done." << std::endl;
+                break;
+
+            // zoom in
+            case GLFW_KEY_UP:
+                std::cout << "Up: Zoom in... ";
+                myViewer->globalScale += zoomDelta;
+                std::cout << "Done." << std::endl;
+                break;
+
+            // zoom out
+            case GLFW_KEY_DOWN:
+                std::cout << "Up: Zoom out... ";
+                myViewer->globalScale -= zoomDelta;
+                std::cout << "Done." << std::endl;
+                break;
+
+            // center meshes
+            case GLFW_KEY_SPACE:
+                std::cout << "SPACE: Centering mesh... ";
+                myViewer->global_translation = GetCentreOfMesh() * centerScalar;
+                std::cout << "Done." << std::endl;
+                break;
+
+            // colour overlap
+            case GLFW_KEY_O:
+                std::cout << "O: Drawing overlap... ";
+                ColourOverlap();
+                std::cout << "Done." << std::endl;
+                break;
+
+            // coulour randomly
+            case GLFW_KEY_M:
+                std::cout << "M: Coloring mesh randomly... ";
+                ColourRandomly();
+                std::cout << "Done." << std::endl;
+                break;
+
+            // find normals and curvature
+            case GLFW_KEY_N:
+                std::cout << "N: Generating normals and curvature... ";
+                FindNormalsAndCurvature();
+                std::cout << "Done." << std::endl;
+                break;
+
+            // Exact computation of eigenvectors, apply with smallest eigenvectors
+            case GLFW_KEY_J:
+                std::cout << "J: [Exact, Eigenvalues] Computing eigenvectors... " << std::flush;
+                ReconstructMesh(Uniform, Exact, SmallestEigenvalues);
+                std::cout << "Done." << std::endl;
+                break;
+
+            // Exact computation of eigenvectors, apply with largest spectral coefficients
+            case GLFW_KEY_K:
+                std::cout << "K: [Exact, Coeff] Computing eigenvectors... " << std::flush;
+                ReconstructMesh(Uniform, Exact, LargestCoefficients);
+                std::cout << "Done." << std::endl;
+                break;
+
+            // Approximate computation of eigenvectors, apply with smallest eigenvectors
+            case GLFW_KEY_L:
+                std::cout << "L: [Approx, Eigenvalues] Computing eigenvectors... " << std::flush;
+                ReconstructMesh(Uniform, Approximate, SmallestEigenvalues);
+                std::cout << "Done." << std::endl;
+                break;
+
+            // Approximate computation of eigenvectors, apply largest spectral coefficients
+            case GLFW_KEY_SEMICOLON:
+                std::cout << ";: [Approx, Coeff] Computing eigenvectors... " << std::flush;
+                ReconstructMesh(Uniform, Approximate, LargestCoefficients);
+                std::cout << "Done." << std::endl;
+                break;
+
+            // implicit laplacian smoothing
+            case GLFW_KEY_D:
+                std::cout << "D: implicit laplacian smoothing iteration... ";
+                ImplicitLaplacianMeshSmoothing(implicitLambda);
+                FindNormalsAndCurvature();
+                std::cout << "Done." << std::endl;
+                break;
+
+            // save mesh
+            case GLFW_KEY_S:
+                std::cout << "S: saving mesh... ";
+                SaveMesh();
+                std::cout << "Done." << std::endl;
+                break;
+
+            // color by Phong shading
+            case GLFW_KEY_P:
+                std::cout << "P: Phong shading... ";
+                ColourByPhong();
+                std::cout << "Done." << std::endl;
+                break;
+
+            // move meshes to common centre
+            case GLFW_KEY_C:
+                std::cout << "C: moving meshes to Common Centre...";
+                MoveMeshesToCommonCentre();
+                std::cout << "Done." << std::endl;
+                break;
+
+            // move meshes to origin
+            case GLFW_KEY_R:
+                std::cout << "R: Meshes moved to Origin... ";
+                MoveMeshesToOrigin();
+                std::cout << "Done." << std::endl;
+                break;
+
+            // diffusion smoothing
+            case GLFW_KEY_I:
+                std::cout << "I: apply diffusion smoothing... ";
+                for (int i = 0; i < 10; i++) {
+                    ApplyDiffusionFlow(diffusionLambda);
+                    FindNormalsAndCurvature();
+                }
+                std::cout << "Done." << std::endl;
+                break;
+
+            // add noise
+            case GLFW_KEY_G:
+                std::cout << "G: Gaussian noise added, var: " << noiseSigma << "... ";
+                myViewer->AddNoise(noiseSigma);
+                std::cout << "Done." << std::endl;
+                break;
+
+            // perform spectral testing
+            case GLFW_KEY_T:
+                std::cout << "Performing tests with n_eigs = " << myViewer->nEVecsToCalculate << std::endl;
+                myViewer->PerformSpectralTests();
+                std::cout << "Done." << std::endl;
+                break;
+
+            // help
+            case GLFW_KEY_H:
+                std::cout << "H: HELP:\n" << std::endl;
+
+                std::cout << "To toggle Edit mode press \tE" << std::endl;
+                std::cout << "To toggle ICP mode press \tI" << std::endl;
+                std::cout << "Current mode: " << (myViewer->editMode ? "Edit mode\n" : "ICP mode") << std::endl;
+
+                std::cout << "\nEdit mode commands:" << std::endl;
+                std::cout << "\t" << "R:" << "\t" << "Select Rotation mode" << std::endl;
+                std::cout << "\t" << "T:" << "\t" << "Select Translation mode" << std::endl;
+                std::cout << "\t" << "X:" << "\t" << "Select X axis" << std::endl;
+                std::cout << "\t" << "Y:" << "\t" << "Select Y axis" << std::endl;
+                std::cout << "\t" << "Z:" << "\t" << "Select Z axis" << std::endl;
+                std::cout << "\t" << "LEFT:" << "\t" << "translate/rotate" << std::endl;
+                std::cout << "\t" << "RIGHT:" << "\t" << "translate/rotate" << std::endl;
+
+                std::cout << "\nICP mode commands:" << std::endl;
+                std::cout << "\t" << "LEFT:" << "\t" << "rotate scene" << std::endl;
+                std::cout << "\t" << "RIGHT:" << "\t" << "rotate scene" << std::endl;
+                std::cout << "\t" << "UP:" << "\t" << "zoom in" << std::endl;
+                std::cout << "\t" << "DOWN:" << "\t" << "zoom out" << std::endl;
+                std::cout << "\t" << "SPACE:" << "\t" << "centre Scene" << std::endl;
+                std::cout << "\t" << "O:" << "\t" << "Draw Overlap between two meshes" << std::endl;
+                std::cout << "\t" << "I:" << "\t" << "Apply single diffusion iterations" << std::endl;
+                std::cout << "\t" << "M:" << "\t" << "Colour by mesh id" << std::endl;
+                std::cout << "\t" << "N:" << "\t" << "Find normals" << std::endl;
+                std::cout << "\t" << "D:" << "\t" << "Implicit Laplacian smoothing" << std::endl;
+                std::cout << "\t" << "S:" << "\t" << "Save second mesh" << std::endl;
+                std::cout << "\t" << "P:" << "\t" << "Colour by normals - Phong shading" << std::endl;
+                std::cout << "\t" << "C:" << "\t" << "Move meshes to common centre" << std::endl;
+                std::cout << "\t" << "R:" << "\t" << "Move meshes to the origin - similar to SPACE" << std::endl;
+                std::cout << "\t" << "G:" << "\t" << "Add Gaussian noise to second mesh" << std::endl;
+
+                std::cout << "\nSpectral commands:" << std::endl;
+                std::cout << "\t" << "J:" << "\t" << "Exact computation of eigenvectors, apply with smallest eigenvectors" << std::endl;
+                std::cout << "\t" << "K:" << "\t" << "Exact computation of eigenvectors, apply with largest spectral coefficients" << std::endl;
+                std::cout << "\t" << "L:" << "\t" << "Approximate computation of eigenvectors, apply with smallest eigenvalues" << std::endl;
+                std::cout << "\t" << ";:" << "\t" << "Approximate computation of eigenvectors, apply with largest spectral coefficients" << std::endl;
+                std::cout << "\t" << "T:" << "\t" << "Perform tests " << std::endl;
+                break;
         }
-        else {
-            glColor3f(0.6f, 0.6f, 0.6f);
-        }
     }
-
-    //draw button background
-    glBegin(GL_QUADS);
-    glVertex2i(b->x_top_left, b->y_top_left);
-    glVertex2i(b->x_top_left, b->y_top_left + b->h);
-    glVertex2i(b->x_top_left + b->w, b->y_top_left + b->h);
-    glVertex2i(b->x_top_left + b->w, b->y_top_left);
-    glEnd();
-
-    glTranslatef(0.0f, 0.0f, 0.1f);
-
-    //Button Outline
-    glLineWidth(3);
-    //Change colour when clicked
-    if (b->pressState == Pressed && b->hoverState == Hover)
-        glColor3f(0.4f, 0.4f, 0.4f);
-    else
-        glColor3f(0.8f, 0.8f, 0.8f);
-
-    glBegin(GL_LINE_STRIP);
-    glVertex2i(b->x_top_left + b->w, b->y_top_left);
-    glVertex2i(b->x_top_left, b->y_top_left);
-    glVertex2i(b->x_top_left, b->y_top_left + b->h);
-    glEnd();
-
-    if (b->pressState == Pressed)
-        glColor3f(0.8f, 0.8f, 0.8f);
-    else
-        glColor3f(0.4f, 0.4f, 0.4f);
-
-    glBegin(GL_LINE_STRIP);
-    glVertex2i(b->x_top_left, b->y_top_left + b->h);
-    glVertex2i(b->x_top_left + b->w, b->y_top_left + b->h);
-    glVertex2i(b->x_top_left + b->w, b->y_top_left);
-    glEnd();
-
-    glLineWidth(1);
-
-    //Draw text
-
-    int fontx;
-    int fonty;
-
-    //set middle of the text
-    //fontx = b->x_top_left + (b->w - glutBitmapLength(GLUT_BITMAP_HELVETICA_10, b->slabel)) / 2;
-    fontx = b->x_top_left + (b->w)/2 - 20;
-    fonty = b->y_top_left + (b->h + 10) / 2;
-
-    //if button pressed move string
-    if (b->pressState == Pressed) {
-        fontx += 2;
-        fonty += 2;
-    }
-
-    glTranslatef(0.0f, 0.0f, 0.1f);
-
-    //when highlighted use a different colour
-    if (b->hoverState == Hover)
-    {
-        glColor3f(0, 0, 0);
-        Font(GLUT_BITMAP_HELVETICA_10, b->label, fontx, fonty);
-        fontx--;
-        fonty--;
-    }
-
-    glColor3f(1, 1, 1);
-    Font(GLUT_BITMAP_HELVETICA_10, b->label, fontx, fonty);
-    glTranslatef(0.0f, 0.0f, -0.20f);
-
-}
-
-void Viewer::Font(void *font, const char *text, int x, int y) {
-    glRasterPos2i(x, y);
-
-    while (*text != '\0')
-    {
-        glutBitmapCharacter(font, *text);
-        ++text;
-    }
-}
-
-void Viewer::display(GLFWwindow *window) {
-    float ratio;
-    int width, height;
-
-    glfwGetFramebufferSize(window, &width, &height);
-    ratio = width / (float)height;
-
-    glViewport(0, 0, width, height);
-    glEnable(GL_DEPTH_TEST);
-    glDepthMask(GL_TRUE);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(-ratio, ratio, -1.f, 1.f, -1.f, 1.f);
-    glMatrixMode(GL_MODELVIEW);
-
-    glLoadIdentity();
-
-    for (int i = 0; i < mesh_list.size(); i++) {
-        //pop
-        current_mesh = i;
-
-        glPushMatrix();
-
-        //rotate
-        glRotatef(global_rotation, 0.f, 1.f, 0.f);
-
-        //translate so in centre
-        glTranslatef(global_translation[0], global_translation[1], global_translation[2]);
-
-        //scale here will act as a zoom
-        glScalef(globalScale, globalScale, globalScale);
-
-        mesh_list[current_mesh].display(displayMode, colorMode, whichEigToDraw);
-    }
-
-    // Set the orthographic viewing transformation
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0, window_w, window_h, 0, -1, 1);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-
-    //This function will be called within the display function and draw the GUI for my mesh viewer
-    for (int i = 0; i < buttonList.size(); i++) {
-        DrawButton(&buttonList[i]);
-    }
-
-    glfwSwapBuffers(window);
-    glfwPollEvents();
-}
-
-void Viewer::display() {
-    for (int i = 0; i < mesh_list.size(); i++) {
-        auto a = mesh_list[i].n_faces();
-        auto b = mesh_list[i].n_verts();
-        auto c = 5;
-    }
-    glfwSetErrorCallback(error_callback);
-    GLFWwindow* window;
-
-    if (!glfwInit())
-        exit(EXIT_FAILURE);
-
-    if (!glfwInit())
-        exit(EXIT_FAILURE);
-
-    window = glfwCreateWindow(640, 480, "Seb's Coursework 3", NULL, NULL);
-    if (!window)
-    {
-        glfwTerminate();
-        exit(EXIT_FAILURE);
-    }
-
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);
-
-    // auto k_call = static_cast<GLFWkeyfun>([this](GLFWwindow* win, int a, int b, int c, int d) { this->key_callback(win, a, b, c, d); });
-
-    //auto k_call = boost::bind(&Viewer::key_callback, this, _1, _2, _3, _4, _5);
-    glfwSetKeyCallback(window, key_callback);
-    glfwSetMouseButtonCallback(window, mouse_callback);
-    glfwSetCursorPosCallback(window, mouse_moved_callback);
-
-
-    while (!glfwWindowShouldClose(window))
-    {
-        display(window);
-    }
-
-    glfwDestroyWindow(window);
-
-    glfwTerminate();
-    exit(EXIT_SUCCESS);
-}
-
-void Viewer::colourByNormals() {
-    for (int i = 0; i < mesh_list.size(); i++) {
-        current_mesh = i;
-        mesh_list[current_mesh].colourByNormals();
-    }
-}
-
-void Viewer::colourPhong() {
-    lightDir.normalize();
-    for (int i = 0; i < mesh_list.size(); i++) {
-        current_mesh = i;
-        mesh_list[current_mesh].colourPhong(material, lightDir, ambientLight, specular, diffuse, virtual_camera_location);
-    }
-}
-
-Viewer::Viewer(int nEVecsToUse) {
-    this->nEVecsToUse = nEVecsToUse;
-
-    buttonList.push_back(Button(5, 5, 100, 25, "Shading", ToggleShading));
-    buttonList.push_back(Button(105, 5, 100, 25, "Show H", ToggleShowMeanCurvature));
-    buttonList.push_back(Button(205, 5, 100, 25, "Wireframe", ToggleWireFrame));
-    buttonList.push_back(Button(305, 5, 100, 25, "Pointcloud", TogglePointCloud));
-    buttonList.push_back(Button(405, 5, 100, 25, "Show E weight", ToggleShowSpectralWeighting));
-    buttonList.push_back(Button(505, 5, 100, 25, "Show K1 K2", ToggleShowPrincipleCurvature));
-
-    current_mesh = 0;
-
-
-    globalScale += 5;
-
-}
-
-void Viewer::addMesh(TriMesh triMesh) {
-    // Add mesh curvatures as mesh properties
-    mesh_list.push_back(triMesh);
-
-
-    // update the global translation
-    if (mesh_list.size() == 1) {
-        global_translation = getCentreOfMesh(); //get centre
-        global_translation *= -6.0f;
-    }
-
-    // Initialise various functions so I can view and draw the meshes
-
-    findFaceNormals();
-    findVertexNormalsFromFaces();
-    //findGaussianCurvature2();
-    for (int i = 0; i < mesh_list.size(); i++) {
-        auto a = mesh_list[i].n_faces();
-        auto b = mesh_list[i].n_verts();
-        auto c = 5;
-    }
-}
-
-void Viewer::colourRandomly() {
-    for (int i = 0; i < mesh_list.size(); i++) {
-        current_mesh = i;
-        mesh_list[current_mesh].colourRandomly();
-    }
-}
-
-void Viewer::findVertexNormalsFromFaces() {
-    current_mesh = 0;
-    mesh_list[current_mesh].findVertexNormalsFromFaces();
-}
-
-void Viewer::findFaceNormals() {
-    current_mesh = 0;
-    mesh_list[current_mesh].findFaceNormals();
-}
-
-void Viewer::editModeTranslate(float _dir) {
-    current_mesh = 1;
-    mesh_list[current_mesh].translate(_dir, move_amount, current_axis);
-}
-
-void Viewer::editModeRotate(float _dir) {
-    current_mesh = 1;
-    mesh_list[current_mesh].rotate(_dir, current_axis);
-}
-
-void Viewer::uniformLaplaceDiscretization() {
-    current_mesh = 0;
-    mesh_list[current_mesh].uniformLaplaceDiscretization();
-}
-
-void Viewer::discreteLaplaceDiscretization() {
-    current_mesh = 0;
-    mesh_list[current_mesh].discreteLaplaceDiscretization();
-}
-
-void Viewer::addNoise(float _sigma) {
-    current_mesh = 0;
-    mesh_list[current_mesh].addNoise(_sigma);
-}
-
-void Viewer::findGaussianCurvature2() {
-    current_mesh = 0;
-    mesh_list[current_mesh].findGaussianCurvature2();
-}
-
-void Viewer::applyDiffusionFlow(double lambda) {
-    current_mesh = 0;
-    mesh_list[current_mesh].applyDiffusionFlow(lambda);
-}
-
-void Viewer::implicitLaplacianMeshSmoothing(double lambda) {
-    current_mesh = 0;
-    mesh_list[current_mesh].implicitLaplacianMeshSmoothing(lambda);
-}
-
-void Viewer::findGaussianCurvature() {
-    current_mesh = 0;
-    mesh_list[current_mesh].findGaussianCurvature();
-}
-
-OpenMesh::Vec3f Viewer::getCentreOfMesh() {
-    return mesh_list[current_mesh].getCentreOfMesh();
 }
 
 void Viewer::error_callback(int error, const char *description) {
     fputs(description, stderr);
 }
 
-void Viewer::key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, GL_TRUE);
-
-    if (key == GLFW_KEY_H && action == GLFW_PRESS) {
-        std::cout << "H: HELP:\n\n";
-
-        std::cout << "To toggle Edit mode press \tE\n";
-        std::cout << "To toggle ICP mode press \tI\n";
-        std::cout << "Current mode: ";
-
-        if (myViewer->editmode) {
-            std::cout << "Edit mode\n";
-        }
-        else {
-            std::cout << "ICP mode\n";
-        }
-
-        std::cout << "\nEdit mode commands:\n";
-        std::cout << "\t" << "R:" << "\t" << "Select Rotation mode\n";
-        std::cout << "\t" << "T:" << "\t" << "Select Translation mode\n";
-        std::cout << "\t" << "X:" << "\t" << "Select X axis\n";
-        std::cout << "\t" << "Y:" << "\t" << "Select Y axis\n";
-        std::cout << "\t" << "Z:" << "\t" << "Select Z axis\n";
-        std::cout << "\t" << "LEFT:" << "\t" << "translate/rotate\n";
-        std::cout << "\t" << "RIGHT:" << "\t" << "translate/rotate\n";
-
-        std::cout << "\nICP mode commands:\n";
-        std::cout << "\t" << "LEFT:" << "\t" << "rotate scene\n";
-        std::cout << "\t" << "RIGHT:" << "\t" << "rotate scene\n";
-        std::cout << "\t" << "UP:" << "\t" << "zoom in\n";
-        std::cout << "\t" << "DOWN:" << "\t" << "zoom out\n";
-        std::cout << "\t" << "SPACE:" << "\t" << "centre Scene\n";
-        std::cout << "\t" << "O:" << "\t" << "Draw Overlap between two meshes\n";
-        std::cout << "\t" << "I:" << "\t" << "Apply single diffusion iterations\n";
-        std::cout << "\t" << "M:" << "\t" << "Colour by mesh id\n";
-        std::cout << "\t" << "N:" << "\t" << "Find normals\n";
-        std::cout << "\t" << "K:" << "\t" << "Colour by normals (depreciated use P)\n";
-        //std::cout << "\t" << "L:" << "\t" << "Align Normals - not perfectly implemented\n";
-        std::cout << "\t" << "L:" << "\t" << "Implicis Laplacian smoothing\n";
-        std::cout << "\t" << "S:" << "\t" << "Save second mesh\n";
-        std::cout << "\t" << "P:" << "\t" << "Colour by normals - Phong shading\n";
-        std::cout << "\t" << "C:" << "\t" << "Move meshes to common centre\n";
-        std::cout << "\t" << "R:" << "\t" << "Move meshes to the origin - similar to SPACE\n";
-        std::cout << "\t" << "G:" << "\t" << "Add Gaussian noise to second mesh\n";
-
-    }
-
-
-    //in help
-    if (key == GLFW_KEY_E && action == GLFW_PRESS) {
-        myViewer->editmode = true;
-        std::cout << "E: Edit mode enabled\n";
-    }
-
-
-    if (!myViewer->editmode) {
-
-        //in help
-        if (key == GLFW_KEY_LEFT && action == GLFW_PRESS) {
-            myViewer->global_rotation -= 5.0f;
-            // std::cout << "Left\n";
-        }
-        //in help
-        if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS) {
-            myViewer->global_rotation += 5.0f;
-            // std::cout << "right\n";
-        }
-        //in help
-        if (key == GLFW_KEY_UP && action == GLFW_PRESS) {
-            myViewer->globalScale += 1.0f;
-            // std::cout << "UP: Zoom in\n";
-        }
-        //in help
-        if (key == GLFW_KEY_DOWN && action == GLFW_PRESS) {
-            myViewer->globalScale -= 1.0f;
-            // std::cout << "DOWN: Zoom out\n";
-        }
-        //in help
-        if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
-            myViewer->global_translation = myViewer->getCentreOfMesh(); //get centre
-            myViewer->global_translation *= -4.0f;
-            std::cout << "SPACE: Mesh Centred\n";
-        }
-        //in help
-        if (key == GLFW_KEY_O && action == GLFW_PRESS) {
-            myViewer->mesh_list[0].colourOverlap(myViewer->mesh_list[1]);
-            std::cout << "O: Overlap drawn\n";
-        }
-        //in help
-        if (key == GLFW_KEY_M && action == GLFW_PRESS) {
-            myViewer->mesh_list[myViewer->current_mesh].colourRandomly();
-            std::cout << "M: Mesh Coloured\n";
-        }
-        //in help
-        if (key == GLFW_KEY_N && action == GLFW_PRESS) {
-            std::cout << "N: Generating normals...\t";
-            myViewer->findFaceNormals();
-            myViewer->findVertexNormalsFromFaces();
-            myViewer->findGaussianCurvature2();
-            std::cout << "Done\n";
-        }
-        //in help
-        if (key == GLFW_KEY_K && action == GLFW_PRESS) {
-            //double lambda = -1.0;
-            int n_largest_eigs = 50;
-            myViewer->nEVecsToUse += 3;
-            //eigenReconstruction(lambda, n_largest_eigs);
-
-            if (myViewer->nEVecsToUse == 1) {
-                //findEigenVectors(n_largest_eigs);
-            }
-            else {
-                myViewer->findEigenVectors(myViewer->nEVecsToUse);
-                myViewer->remakeFromEVecs(myViewer->nEVecsToUse);
-            }
-        }
-
-        if (key == GLFW_KEY_KP_ADD && action == GLFW_PRESS) {
-            myViewer->mesh_list[myViewer->current_mesh].evecs_coeffs(myViewer->whichEigToDraw) += myViewer->eig_inc;
-            myViewer->remakeFromEVecs(myViewer->nEVecsToUse);
-        }
-
-        if (key == GLFW_KEY_KP_SUBTRACT && action == GLFW_PRESS) {
-            myViewer->mesh_list[myViewer->current_mesh].evecs_coeffs(myViewer->whichEigToDraw) -= myViewer->eig_inc;
-            myViewer->remakeFromEVecs(myViewer->nEVecsToUse);
-        }
-
-        //in help
-        if (key == GLFW_KEY_L && action == GLFW_PRESS) {
-            //alignNormals();
-            std::cout << "L: implicit laplacian smoothing iteration... ";
-            double lambda = -1.0;
-            myViewer->implicitLaplacianMeshSmoothing(lambda);
-            myViewer->findFaceNormals();
-            myViewer->findVertexNormalsFromFaces();
-            myViewer->findGaussianCurvature2();
-
-
-            std::cout << "Done\n";
-        }
-        //in help
-        if (key == GLFW_KEY_S && action == GLFW_PRESS) {
-            myViewer->mesh_list[myViewer->current_mesh].save();
-            std::cout << "S: mesh Saved\n";
-        }
-
-        //in help
-        if (key == GLFW_KEY_P && action == GLFW_PRESS) {
-            myViewer->colourPhong();
-            std::cout << "P: Phong shading\n";
-        }
-        // in help
-        if (key == GLFW_KEY_C && action == GLFW_PRESS) {
-            myViewer->moveMeshesToCommonCentre();
-            std::cout << "C: move meshes to Common Centre\n";
-        }
-
-        //help
-        if (key == GLFW_KEY_R && action == GLFW_PRESS) {
-            myViewer->moveMeshesToOrigin();
-            std::cout << "R: Meshes moved to Origin\n";
-        }
-        //help
-        if (key == GLFW_KEY_I && action == GLFW_PRESS) {
-            for (int i = 0; i < 10; i++) {
-                double lambda = -0.0000001;
-                myViewer->applyDiffusionFlow(lambda);
-                myViewer->findFaceNormals();
-                myViewer->findVertexNormalsFromFaces();
-                myViewer->findGaussianCurvature2();
-            }
-            std::cout << "I: apply diffusion smoothing\n";
-        }
-
-        //help
-        if (key == GLFW_KEY_G && action == GLFW_PRESS) {
-            double sigma = 0.0002;
-            myViewer->addNoise(sigma);
-            std::cout << "G: Gaussian noise added, var: " << sigma << "\n";
-        }
-
-    }
-    else {
-        //in help
-        if (key == GLFW_KEY_R && action == GLFW_PRESS) {
-            myViewer->editType = RotationMode;
-            std::cout << "R: Rotation mode toggled\n";
-        }
-        //in help
-        if (key == GLFW_KEY_T && action == GLFW_PRESS) {
-            myViewer->editType = TranslationMode;
-            std::cout << "R: Translation mode toggled\n";
-        }
-        //in help
-        if (myViewer->editType == TranslationMode) {
-            if (key == GLFW_KEY_LEFT && action == GLFW_PRESS) {
-                myViewer->editModeTranslate(-1.0);
-                std::cout << "Left: Mesh moved left\n";
-            }
-            //in help
-            if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS) {
-                myViewer->editModeTranslate(1.0);
-                std::cout << "Right: Mesh moved right\n";
-            }
-        }
-
-        if (myViewer->editType == RotationMode) {
-            //in help
-            if (key == GLFW_KEY_LEFT && action == GLFW_PRESS) {
-                myViewer->editModeRotate(-1.0);
-                std::cout << "Left: Mesh rotated left\n";
-            }
-            //in help
-            if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS) {
-                myViewer->editModeRotate(1.0);
-                std::cout << "Right: Mesh rotated right\n";
-            }
-        }
-
-        //in help
-        if (key == GLFW_KEY_X && action == GLFW_PRESS) {
-            myViewer->current_axis = 0;
-            std::cout << "X: X axis selected\n";
-        }
-        //in help
-        if (key == GLFW_KEY_Y && action == GLFW_PRESS) {
-            myViewer->current_axis = 1;
-            std::cout << "Y: Y axis selected\n";
-        }
-        //in help
-        if (key == GLFW_KEY_Z && action == GLFW_PRESS) {
-            myViewer->current_axis = 2;
-            std::cout << "Z: Z axis selected\n";
-        }
-
-    }
-}
-
 void Viewer::mouse_callback(GLFWwindow *window, int button, int action, int mods) {
-    auto mouse = &myViewer->TheMouse;
+    auto mouse = &myViewer->mouse;
 
     if (button == GLFW_MOUSE_BUTTON_1) {
         //mouse button 1 - Left mouse Button
@@ -634,7 +305,6 @@ void Viewer::mouse_callback(GLFWwindow *window, int button, int action, int mods
         for (int i = 0; i < myViewer->buttonList.size(); i++) {
             myViewer->buttonList[i].updateClickState(mouse->x, mouse->y, action == 1);
         }
-
     }
     else if(button == GLFW_MOUSE_BUTTON_2) {
         //mouse button 2 - Right mouse Button
@@ -644,10 +314,10 @@ void Viewer::mouse_callback(GLFWwindow *window, int button, int action, int mods
 
 void Viewer::mouse_moved_callback(GLFWwindow *window, double x_pos, double y_pos) {
 
-    auto mouse = &myViewer->TheMouse;
+    auto mouse = &myViewer->mouse;
 
-    mouse->dx = mouse->x - x_pos;
-    mouse->dy = mouse->y - y_pos;
+    mouse->dx = (int)(mouse->x - x_pos);
+    mouse->dy = (int)(mouse->y - y_pos);
 
     mouse->x = (int)x_pos;
     mouse->y = (int)y_pos;
@@ -665,61 +335,417 @@ void Viewer::mouse_moved_callback(GLFWwindow *window, double x_pos, double y_pos
     }
 }
 
-void Viewer::eigenReconstruction(double lambda, int nLargestEigs) {
-    current_mesh = 0;
-    mesh_list[current_mesh].eigenReconstruction(lambda, nLargestEigs);
+void Viewer::ColourByPhong() {
+    myViewer->lightDir.normalize();
+    myViewer->mesh_list[myViewer->primary_mesh].colourPhong(myViewer->material, myViewer->lightDir,
+                                                            myViewer->ambientLight, myViewer->specular,
+                                                            myViewer->diffuse, myViewer->virtualCameraLocation);
 }
 
-void Viewer::findEigenVectors(int nLargestEigs) {
-    current_mesh = 0;
-    mesh_list[current_mesh].findEigenVectors(nLargestEigs);
-}
+void Viewer::ColourByNormals() { myViewer->mesh_list[myViewer->primary_mesh].colourByNormals(); }
 
-void Viewer::remakeFromEVecs(int nLargestEigs) {
-    current_mesh = 0;
-    mesh_list[current_mesh].remakeFromEVecs(nLargestEigs, unchangedMesh);
-}
+void Viewer::ColourRandomly() { myViewer->mesh_list[myViewer->primary_mesh].colourRandomly(); }
 
-void Viewer::moveMeshesToCommonCentre() {
+void Viewer::FindVertexNormalsFromFaces() { myViewer->mesh_list[myViewer->primary_mesh].findVertexNormalsFromFaces(); }
+
+void Viewer::FindFaceNormals() { myViewer->mesh_list[myViewer->primary_mesh].findFaceNormals(); }
+
+void Viewer::EditModeTranslate(float _dir) { myViewer->mesh_list[myViewer->primary_mesh].translate(_dir, myViewer->move_amount, myViewer->current_axis); }
+
+void Viewer::EditModeRotate(float _dir) { myViewer->mesh_list[myViewer->primary_mesh].rotate(_dir, myViewer->current_axis); }
+
+void Viewer::AddNoise(float sigma) { myViewer->mesh_list[myViewer->primary_mesh].addNoise(sigma); }
+
+void Viewer::FindGaussianCurvature() { myViewer->mesh_list[myViewer->primary_mesh].findGaussianCurvature(); }
+
+void Viewer::ApplyDiffusionFlow(double lambda) { myViewer->mesh_list[myViewer->primary_mesh].applyDiffusionFlow(lambda); }
+
+void Viewer::ImplicitLaplacianMeshSmoothing(double lambda) { myViewer->mesh_list[myViewer->primary_mesh].implicitLaplacianMeshSmoothing(lambda); }
+
+OpenMesh::Vec3f Viewer::GetCentreOfMesh() { return myViewer->mesh_list[myViewer->primary_mesh].getCentreOfMesh(); }
+
+void Viewer::ColourOverlap() { myViewer->mesh_list[myViewer->primary_mesh].colourOverlap(myViewer->mesh_list[1]); }
+
+void Viewer::SaveMesh() { myViewer->mesh_list[myViewer->primary_mesh].save(); }
+
+void Viewer::MoveMeshesToCommonCentre() {
 
     std::vector<OpenMesh::Vec3f> mesh_centre;
     //find average point
-    for (int i = 0; i < mesh_list.size(); i++) {
+    for (int i = 0; i < myViewer->mesh_list.size(); i++) {
 
         mesh_centre.push_back(OpenMesh::Vec3f()*0.0f);
-        current_mesh = i;
-        mesh_centre[current_mesh] = mesh_list[current_mesh].getCentreOfMesh();
+        myViewer->primary_mesh = i;
+        mesh_centre[myViewer->primary_mesh] = myViewer->mesh_list[myViewer->primary_mesh].getCentreOfMesh();
     }
 
     //move points to mesh 1 location
-    for (int i = 1; i < mesh_list.size(); i++) {
+    for (int i = 1; i < myViewer->mesh_list.size(); i++) {
 
-        current_mesh = i;
-        OpenMesh::Vec3f translation = mesh_centre[0] - mesh_centre[current_mesh];
-        mesh_list[current_mesh].translate(translation);
+        myViewer->primary_mesh = i;
+        OpenMesh::Vec3f translation = mesh_centre[0] - mesh_centre[myViewer->primary_mesh];
+        myViewer->mesh_list[myViewer->primary_mesh].translate(translation);
     }
 }
 
-void Viewer::moveMeshesToOrigin() {
+void Viewer::MoveMeshesToOrigin() {
 
     std::vector<OpenMesh::Vec3f> mesh_centre;
     //find average point
-    for (int i = 0; i < mesh_list.size(); i++) {
+    for (int i = 0; i < myViewer->mesh_list.size(); i++) {
 
         mesh_centre.push_back(OpenMesh::Vec3f()*0.0f);
-        current_mesh = i;
-        mesh_centre[current_mesh] = mesh_list[current_mesh].getCentreOfMesh();
+        myViewer->primary_mesh = i;
+        mesh_centre[myViewer->primary_mesh] = myViewer->mesh_list[myViewer->primary_mesh].getCentreOfMesh();
     }
 
     //move points to mesh 1 location
-    for (int i = 0; i < mesh_list.size(); i++) {
+    for (int i = 0; i < myViewer->mesh_list.size(); i++) {
 
-        current_mesh = i;
+        myViewer->primary_mesh = i;
         OpenMesh::Vec3f translation = -1.0 * mesh_centre[0];
-        mesh_list[current_mesh].translate(translation);
+        myViewer->mesh_list[myViewer->primary_mesh].translate(translation);
     }
 }
 
-void Viewer::setUnchangedMesh(TriMesh *triMesh) {
-    unchangedMesh = triMesh;
+void Viewer::FindNormalsAndCurvature() {
+    FindFaceNormals();
+    FindVertexNormalsFromFaces();
+    FindGaussianCurvature();
+}
+
+void Viewer::IncreaseSpectralCoeff(int delta) {
+    std::cout << "Increasing eigenvector " << myViewer->selectedEVec << " by " << delta << " and reconstructing... ";
+    myViewer->mesh_list[myViewer->primary_mesh].increaseEVecCoeff(myViewer->selectedEVec, delta);
+    myViewer->mesh_list[myViewer->primary_mesh].reconstructMesh(myViewer->nEVecsToDraw);
+    std::cout << "Done." << std::endl;
+}
+
+void Viewer::IncreaseSelectedEigenVector(int delta) {
+    int eig = (myViewer->selectedEVec + delta) % myViewer->nEVecsToDraw;
+    std::cout << "Selecting eigenvector " << eig << "... ";
+    myViewer->selectedEVec = eig;
+    std::cout << "Done." << std::endl;
+}
+
+void Viewer::IncreaseCalculatedEVecs(int delta, int maxNumEigs) {
+    int eig = (myViewer->nEVecsToCalculate + delta) % maxNumEigs;
+    std::cout << "Changing calculated eigenvectors to " << eig << "... ";
+    myViewer->nEVecsToCalculate = eig;
+    std::cout << "Done." <<std::endl;
+}
+
+void Viewer::IncreaseNShownEigenVectors(int delta) {
+    int eig = (myViewer->nEVecsToDraw + delta) % myViewer->nEVecsToCalculate;
+    std::cout << "Reconstructing mesh with " << eig <<  " eigenvectors... ";
+    myViewer->nEVecsToDraw = eig;
+    myViewer->mesh_list[myViewer->primary_mesh].reconstructMesh(myViewer->nEVecsToDraw);
+    std::cout << "Done." <<std::endl;
+}
+
+void Viewer::ReconstructMesh() {
+    std::cout << "Reconstructing first " << myViewer->nEVecsToCalculate << " eigenvectors... ";
+    myViewer->mesh_list[myViewer->primary_mesh].reconstructMesh(myViewer->nEVecsToCalculate);
+    std::cout << "Done." << std::endl;
+}
+
+void Viewer::RecomputeEigenvectors() {
+    std::cout << "Recomputing " << myViewer->nEVecsToCalculate << " eigenvectors... ";
+    myViewer->mesh_list[myViewer->primary_mesh].recomputeEigenvectors(myViewer->nEVecsToCalculate);
+    std::cout << "Done." << std::endl;
+}
+
+void Viewer::ReconstructMesh(Laplacian laplacian, EigenSolver solverType, Reconstruction reconType) {
+    auto mesh = &myViewer->mesh_list[myViewer->primary_mesh];
+    auto L = laplacian == Uniform ? mesh->computeUniformLaplacian() : mesh->computeCotanLaplacian();
+    auto evecs = solverType == Exact ? mesh->exactlyDecomposeLaplacian(L)
+                                     : mesh->approximatelyDecomposeLaplacian(myViewer->nEVecsToCalculate, L);
+    reconType == SmallestEigenvalues ? mesh->reconstructBySmallestEigenvalue(evecs, myViewer->nEVecsToDraw)
+                                     : mesh->reconstructByLargestSpectralCoefficient(evecs, myViewer->nEVecsToDraw);
+}
+
+void Viewer::PerformSpectralTests() {
+    auto testMesh = &myViewer->mesh_list[myViewer->primary_mesh];
+    auto N = testMesh->numVertices();
+    MatrixXd approxEigs;
+    MatrixXd exactEigs;
+
+    // perform the tests on each reconstructed mesh
+
+    auto Luni = testMesh->computeUniformLaplacian();
+    auto Lcot = testMesh->computeCotanLaplacian();
+
+    auto exactThreshold = 1000;
+
+    if (N <= exactThreshold) {
+        // set the laplacian for uniform
+        std::cout << "Calculating exact uniform laplacian... " << std::flush;
+        exactEigs = testMesh->exactlyDecomposeLaplacian(Luni);
+        std::cout << "Done." << std::endl;
+
+        std::cout << "----------------------------------------------------------------------------------" << std::endl;
+        std::cout << "Exact Uniform Eigenvalue" << std::endl;
+        std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+        std::ofstream out1("results/exact_uniform_eigenvalues.txt");
+        for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+
+            std::cout << "Testing exact uniform eigenvalue reconstruction at eig_n = " << i << std::endl;
+            // reconstruct the mesh
+            testMesh->reconstructBySmallestEigenvalue(exactEigs, i);
+
+            // check the difference
+            double ssd = testMesh->ssd();
+
+            out1 << i << "\t" << ssd << std::endl;
+        }
+        out1.close();
+
+        std::cout << "----------------------------------------------------------------------------------" << std::endl;
+        std::cout << "Exact Uniform Coefficient" << std::endl;
+        std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+        std::ofstream out2("results/exact_uniform_coeff.txt");
+        for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+
+            std::cout << "Testing exact uniform coeff reconstruction at eig_n = " << i << std::endl;
+            // reconstruct the mesh
+            testMesh->reconstructByLargestSpectralCoefficient(exactEigs, i);
+
+            // check the difference
+            double ssd = testMesh->ssd();
+
+            out2 << i << "\t" << ssd << std::endl;
+        }
+        out2.close();
+
+        // reset the laplacian for cotan
+        std::cout << "Calculating exact cotan laplacian... " << std::flush;
+        exactEigs = testMesh->exactlyDecomposeLaplacian(Lcot);
+        std::cout << "Done." << std::endl;
+
+        std::cout << "----------------------------------------------------------------------------------" << std::endl;
+        std::cout << "Exact Cotan Eigenvalue" << std::endl;
+        std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+        std::ofstream out3("results/exact_cotan_eigenvalues.txt");
+        for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+
+            std::cout << "Testing exact cotan eigenvalue reconstruction at eig_n = " << i << std::endl;
+            // reconstruct the mesh
+            testMesh->reconstructBySmallestEigenvalue(exactEigs, i);
+
+            // check the difference
+            double ssd = testMesh->ssd();
+
+            out3 << i << "\t" << ssd << std::endl;
+        }
+        out3.close();
+
+        std::cout << "----------------------------------------------------------------------------------" << std::endl;
+        std::cout << "Exact Cotan Coefficient" << std::endl;
+        std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+        std::ofstream out4("results/exact_cotan_coeff.txt");
+        for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+
+            std::cout << "Testing exact cotan coeff reconstruction at eig_n = " << i << std::endl;
+            // reconstruct the mesh
+            testMesh->reconstructByLargestSpectralCoefficient(exactEigs, i);
+
+            // check the difference
+            double ssd = testMesh->ssd();
+
+            out4 << i << "\t" << ssd << std::endl;
+        }
+        out4.close();
+    }
+    else {
+        std::cout << "Skipping exact test because N is too large..." << std::endl;
+    }
+
+
+    // set the laplacian for uniform
+
+
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+    std::cout << "Approximate Uniform Eigenvalues" << std::endl;
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+    std::ofstream out1("results/approx_uniform_eigenvalues.txt");
+    for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+        approxEigs = testMesh->approximatelyDecomposeLaplacian(i, Luni);
+
+        std::cout << "Testing approx uniform eigenvalue reconstruction at eig_n = " << i << std::endl;
+        // reconstruct the mesh
+        testMesh->reconstructBySmallestEigenvalue(approxEigs, i);
+
+        // check the difference
+        double ssd = testMesh->ssd();
+
+        out1 << i << "\t" << ssd << std::endl;
+    }
+    out1.close();
+
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+    std::cout << "Approximate Uniform Coefficients" << std::endl;
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+    std::ofstream out2("results/approx_uniform_coeff.txt");
+    for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+        approxEigs = testMesh->approximatelyDecomposeLaplacian(i, Luni);
+
+        std::cout << "Testing approx uniform coeff reconstruction at eig_n = " << i << std::endl;
+        // reconstruct the mesh
+        testMesh->reconstructByLargestSpectralCoefficient(approxEigs, i);
+
+        // check the difference
+        double ssd = testMesh->ssd();
+
+        out2 << i << "\t" << ssd << std::endl;
+    }
+    out2.close();
+
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+    std::cout << "Approximate Cotan Eigenvalues" << std::endl;
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+    std::ofstream out3("results/approx_cotan_eigenvalues.txt");
+    for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+        approxEigs = testMesh->approximatelyDecomposeLaplacian(i, Lcot);
+
+        std::cout << "Testing approx cotan eigenvalue reconstruction at eig_n = " << i << std::endl;
+        // reconstruct the mesh
+        testMesh->reconstructBySmallestEigenvalue(approxEigs, i);
+
+        // check the difference
+        double ssd = testMesh->ssd();
+
+        out3 << i << "\t" << ssd << std::endl;
+    }
+    out3.close();
+
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+    std::cout << "Approximate Cotan Coefficients" << std::endl;
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+    std::ofstream out4("results/approx_cotan_coeff.txt");
+    for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+        approxEigs = testMesh->approximatelyDecomposeLaplacian(i, Lcot);
+
+        std::cout << "Testing approx cotan coeff reconstruction at eig_n = " << i << std::endl;
+        // reconstruct the mesh
+        testMesh->reconstructByLargestSpectralCoefficient(approxEigs, i);
+
+        // check the difference
+        double ssd = testMesh->ssd();
+
+        out4 << i << "\t" << ssd << std::endl;
+    }
+    out4.close();
+
+
+
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+    std::cout << "Noise Resiliency 0.002" << std::endl;
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+    std::ofstream out5("results/noise_0.002.txt");
+    testMesh->reset();
+    testMesh->addNoise(0.002);
+    for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+        approxEigs = testMesh->approximatelyDecomposeLaplacian(i, Luni);
+
+        std::cout << "Testing noise resiliency of 0.002 at eig_n = " << i << std::endl;
+        // reconstruct the mesh
+        testMesh->reconstructBySmallestEigenvalue(approxEigs, i);
+
+        // check the difference
+        double ssd = testMesh->ssd();
+
+        out5 << i << "\t" << ssd << std::endl;
+    }
+    testMesh->reset();
+    out5.close();
+
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+    std::cout << "Noise Resiliency 0.005" << std::endl;
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+    std::ofstream out6("results/noise_0.005.txt");
+    testMesh->addNoise(0.005);
+    for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+        approxEigs = testMesh->approximatelyDecomposeLaplacian(i, Luni);
+
+        std::cout << "Testing noise resiliency of 0.005 at eig_n = " << i << std::endl;
+        // reconstruct the mesh
+        testMesh->reconstructBySmallestEigenvalue(approxEigs, i);
+
+        // check the difference
+        double ssd = testMesh->ssd();
+
+        out6 << i << "\t" << ssd << std::endl;
+    }
+    testMesh->reset();
+    out6.close();
+
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+    std::cout << "Noise Resiliency 0.01" << std::endl;
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+    std::ofstream out7("results/noise_0.01.txt");
+    testMesh->addNoise(0.01);
+    for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+        approxEigs = testMesh->approximatelyDecomposeLaplacian(i, Luni);
+
+        std::cout << "Testing noise resiliency of 0.01 at eig_n = " << i << std::endl;
+        // reconstruct the mesh
+        testMesh->reconstructBySmallestEigenvalue(approxEigs, i);
+
+        // check the difference
+        double ssd = testMesh->ssd();
+
+        out7 << i << "\t" << ssd << std::endl;
+    }
+    testMesh->reset();
+    out7.close();
+
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+    std::cout << "Noise Resiliency 0.1" << std::endl;
+    std::cout << "----------------------------------------------------------------------------------" << std::endl;
+
+    std::ofstream out8("results/noise_0.1.txt");
+    testMesh->addNoise(0.1);
+    for (int i = 3; i < myViewer->nEVecsToCalculate; i += (i / 4) + 1) {
+        approxEigs = testMesh->approximatelyDecomposeLaplacian(i, Luni);
+
+        std::cout << "Testing noise resiliency of 0.1 at eig_n = " << i << std::endl;
+        // reconstruct the mesh
+        testMesh->reconstructBySmallestEigenvalue(approxEigs, i);
+
+        // check the difference
+        double ssd = testMesh->ssd();
+
+        out8 << i << "\t" << ssd << std::endl;
+    }
+    testMesh->reset();
+    out8.close();
+
+    std::cout << "Done." << std::endl;
+}
+
+void Viewer::ResetMeshes() { myViewer->mesh_list[myViewer->primary_mesh].reset(); }
+
+void Viewer::addMesh(TriMesh triMesh) {
+    // Add mesh curvatures as mesh properties
+    mesh_list.push_back(triMesh);
+
+    // update the global translation
+    if (mesh_list.size() == 1) {
+        global_translation = GetCentreOfMesh(); //get centre
+        global_translation *= -6.0f;
+    }
+
+    // Initialise various functions so I can view and draw the meshes
+    FindNormalsAndCurvature();
 }
